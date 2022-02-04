@@ -3,12 +3,12 @@ class Cropper:
         self.mins = tuple(mins)
         self.maxs = tuple(maxs)
 
-    def crop(self, im, rescale_factor=1):
-        if rescale_factor != 1:
+    def crop(self, im, upscale_factor=1):
+        if upscale_factor != 1:
             im = (
-                im.repeat(rescale_factor, axis=0)
-                .repeat(rescale_factor, axis=1)
-                .repeat(rescale_factor, axis=2)
+                im.repeat(upscale_factor, axis=0)
+                .repeat(upscale_factor, axis=1)
+                .repeat(upscale_factor, axis=2)
             )
 
         im = im[
