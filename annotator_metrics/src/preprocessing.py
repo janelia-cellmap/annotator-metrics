@@ -206,25 +206,25 @@ def get_predictions_and_refinements(group_crop: str, output_path: str):
             .repeat(rescale_factor_for_annotation, axis=1)
             .repeat(rescale_factor_for_annotation, axis=2)
         )
-        print(current_type, combined_image.shape)
+
         full_image_dict[current_type] = combined_image
 
     return full_image_dict
 
 
 def copy_data(
-    mask_information: MaskInformation,
     group: Union[str, list],
     output_base_path: str,
     input_base_path: str = "/groups/cosem/cosem/annotations/training/",
 ):
+    mask_information = MaskInformation()
     for row in mask_information.rows:
         if row.group in group:
             crop = row.crop
             cropper = Cropper(row.mins, row.maxs)
 
             current_input_path = f"{input_base_path}/{group}-labels/{group}_{crop}/"
-            current_output_path = f"{output_base_path}/{group}-labels/{group}_{crop}/"
+            current_output_path = f"{output_base_path}/{group}/{crop}/"
             os.makedirs(current_output_path, exist_ok=True)
 
             # do the croopping for annotators
@@ -241,7 +241,6 @@ def copy_data(
                 f"{group}_{crop}", current_output_path
             )
             for name, im in full_im_dict.items():
-                print(crop, name)
                 im_cropped = cropper.crop(im)
                 tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
 

@@ -10,6 +10,7 @@ class Row:
         self._is_valid = True
         try:
             self.__get_useful_columns()
+            self.__get_organelle_info()
         except:
             self._is_valid = False
 
@@ -43,6 +44,17 @@ class Row:
             "correct annotation resolution (nm)"
         )
         self.mins, self.maxs = self.__get_column("coordinates within crop")
+
+    def __get_organelle_info(self):
+        self.organelle_info = {}
+        for h, c in self.df_row.iteritems():
+            if c == "X":
+                organelle_name = h[0].split("(")[0]
+                organelle_label = int(h[0].split("(")[1].split(")")[0])
+                self.organelle_info[organelle_name] = organelle_label
+
+        if set(self.organelle_info.values()).intersection(set([3, 4, 5])):
+            self.organelle_info["mito"] = 0
 
     def is_valid(self):
         return self._is_valid
