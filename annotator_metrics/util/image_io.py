@@ -1,3 +1,6 @@
+import numpy as np
+
+
 class Cropper:
     def __init__(self, mins, maxs):
         self.mins = tuple(mins)

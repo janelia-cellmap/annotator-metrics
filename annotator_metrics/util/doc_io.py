@@ -5,8 +5,8 @@ import re
 
 
 class Row:
-    def __init__(self, row):
-        self.df_row = row
+    def __init__(self, df_row):
+        self.df_row = df_row
         self._is_valid = True
         try:
             self.__get_useful_columns()
@@ -31,9 +31,6 @@ class Row:
                 return val.replace("\\", "/").replace("Z:", "/groups/cosem/cosem")
             return val
 
-    def is_valid(self):
-        return self._is_valid
-
     def __get_useful_columns(self):
         group_crop = self.__get_column("group")
         self.group = group_crop.split("_")[0]
@@ -46,6 +43,9 @@ class Row:
             "correct annotation resolution (nm)"
         )
         self.mins, self.maxs = self.__get_column("coordinates within crop")
+
+    def is_valid(self):
+        return self._is_valid
 
 
 class MaskInformation:
