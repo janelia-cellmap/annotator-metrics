@@ -1,4 +1,5 @@
 import os
+import dask
 import matplotlib
 import numpy as np
 import tifffile
@@ -11,68 +12,129 @@ from CNNectome.validation.organelles.segmentation_metrics import (
     display_name,
     sorting,
 )
+from dask import delayed, compute
+import dask.distributed
+from dask.distributed import Client
+import pandas
 
 
-def calculate_all_to_all(group_id: str, input_base_path: str):
+def compute_row_score(r):
+    all_scores = []
+    metric_params = {
+        "tol_distance": 40,
+        "clip_distance": 200,
+        "threshold": 127,
+    }
+    indices = [r.gt_idx, r.test_idx]
+    images = [tifffile.imread(r.gt_path), tifffile.imread(r.test_path)]
+
+    do_swap = r.gt_idx != r.test_idx
+    for swapper in range(1 + do_swap):
+        gt_idx = indices[swapper]
+        test_idx = indices[1 - swapper]
+        gt_image = images[swapper]
+        test_image = images[1 - swapper]
+
+        if r.organelle_label == 0:
+            gt_image_binary = (gt_image >= 3) & (gt_image <= 5)
+            test_image_binary = (test_image >= 3) & (test_image <= 5)
+        else:
+            gt_image_binary = gt_image == r.organelle_label
+            test_image_binary = test_image == r.organelle_label
+
+        evaluator = Evaluator(
+            gt_image_binary,
+            test_image_binary,
+            not gt_image_binary.any(),
+            not test_image_binary.any(),
+            metric_params,
+            resolution=[r.resolution] * 3,
+        )
+
+        try:
+            score = evaluator.compute_score(r.metric)
+        except:
+            score = float("NaN")
+        if score == np.nan_to_num(np.inf):
+            score = float("NaN")  # Necessary for plotting
+        all_scores.append(
+            [r.organelle_name, display_name(r.metric), gt_idx, test_idx, score]
+        )
+    return all_scores
+
+
+def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int = 10):
+
     mi = MaskInformation()
-    matplotlib.rcParams["figure.dpi"] = 300
     all_to_all_by_crop = {}
     names_by_crop = {}
-    group_rows = [row for row in mi.rows if row.group == group_id and row.crop == "04"]
+    group_rows = [row for row in mi.rows if row.group == group_id]
+
+    df = pandas.DataFrame(
+        columns=[
+            "crop",
+            "organelle_name",
+            "organelle_label",
+            "metric",
+            "gt_idx",
+            "test_idx",
+            "gt_path",
+            "test_path",
+            "resolution",
+        ]
+    )
+    df_row_values = []
     for row in group_rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
         names_by_crop[row.crop] = [n.split(".")[0] for n in all_segmentations]
+        image_paths = [
+            f"{input_base_path}/{row.group}/{row.crop}/{f}" for f in all_segmentations
+        ]
         all_to_all_by_crop[row.crop] = {}
-        for organelle_name in row.organelle_info.keys():
+        for organelle_name, organelle_label in row.organelle_info.items():
             all_to_all_by_crop[row.crop][organelle_name] = {}
             for metric in EvaluationMetrics:
-                metric_name = display_name(metric)
-                all_to_all_by_crop[row.crop][organelle_name][metric_name] = np.zeros(
-                    (len(all_segmentations), len(all_segmentations))
-                )
+                for gt_idx, gt_path in enumerate(image_paths):
+                    for test_idx, test_path in enumerate(image_paths, gt_idx):
+                        df_row_values.append(
+                            [
+                                row.crop,
+                                organelle_name,
+                                organelle_label,
+                                metric,
+                                gt_idx,
+                                test_idx,
+                                gt_path,
+                                test_path,
+                                row.correct_resolution,
+                            ]
+                        )
+    df = pandas.DataFrame(
+        df_row_values,
+        columns=[
+            "crop",
+            "organelle_name",
+            "organelle_label",
+            "metric",
+            "gt_idx",
+            "test_idx",
+            "gt_path",
+            "test_path",
+            "resolution",
+        ],
+    )
+    # Setup dask client
+    dask.config.set({"distributed.comm.timeouts.connect": 100})
+    client = Client(n_workers=num_workers, threads_per_worker=1)
+    print(client.dashboard_link)
+    lazy_results = []
+    for _, row in df.iterrows():
+        # images_list_scattered = client.scatter(images_list)
+        lazy_results.append(delayed(compute_row_score)(row))
+    results = dask.compute(*lazy_results)
 
-        images_list = [
-            tifffile.imread(f"{input_base_path}/{row.group}/{row.crop}/{f}")
-            for f in all_segmentations
-        ]
-
-        metric_params = {
-            "tol_distance": 40,
-            "clip_distance": 200,
-            "threshold": 127,
-        }
-
-        for gt_idx, gt_image in enumerate(images_list):
-            for test_idx, test_image in enumerate(images_list):
-                for organelle_name, organelle_label in row.organelle_info.items():
-                    if organelle_label == 0:
-                        gt_image_binary = (gt_image >= 3) & (gt_image <= 5)
-                        test_image_binary = (test_image >= 3) & (test_image <= 5)
-                    else:
-                        gt_image_binary = gt_image == organelle_label
-                        test_image_binary = test_image == organelle_label
-                    evaluator = Evaluator(
-                        gt_image_binary,
-                        test_image_binary,
-                        not gt_image_binary.any(),
-                        not test_image_binary.any(),
-                        metric_params,
-                        resolution=[row.correct_resolution] * 3,
-                    )
-                    for metric in EvaluationMetrics:
-                        metric_name = display_name(metric)
-                        if metric_name == "F1 Score":
-                            try:
-                                score = evaluator.compute_score(metric)
-                            except:
-                                score = float("NaN")
-                            if score == np.nan_to_num(np.inf):
-                                score = float("NaN")  # Necessary for plotting
-
-                        all_to_all_by_crop[row.crop][organelle_name][metric_name][
-                            gt_idx
-                        ][test_idx] = score
-
+    return results
+    matplotlib.rcParams["figure.dpi"] = 300
     score_ranges = {}
     for row in group_rows:
         for organelle_name in row.organelle_info.keys():
