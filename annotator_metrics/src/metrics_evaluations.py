@@ -50,16 +50,16 @@ def compute_row_score(r):
             metric_params,
             resolution=[r.resolution] * 3,
         )
-
-        try:
-            score = evaluator.compute_score(r.metric)
-        except:
-            score = float("NaN")
-        if score == np.nan_to_num(np.inf):
-            score = float("NaN")  # Necessary for plotting
-        all_scores.append(
-            [r.organelle_name, display_name(r.metric), gt_idx, test_idx, score]
-        )
+        for metric in EvaluationMetrics:
+            try:
+                score = evaluator.compute_score(metric)
+            except:
+                score = float("NaN")
+            if score == np.nan_to_num(np.inf):
+                score = float("NaN")  # Necessary for plotting
+            all_scores.append(
+                [r.organelle_name, display_name(metric), gt_idx, test_idx, score]
+            )
     return all_scores
 
 
@@ -69,20 +69,6 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
     all_to_all_by_crop = {}
     names_by_crop = {}
     group_rows = [row for row in mi.rows if row.group == group_id]
-
-    df = pandas.DataFrame(
-        columns=[
-            "crop",
-            "organelle_name",
-            "organelle_label",
-            "metric",
-            "gt_idx",
-            "test_idx",
-            "gt_path",
-            "test_path",
-            "resolution",
-        ]
-    )
     df_row_values = []
     for row in group_rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
@@ -93,29 +79,26 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
         all_to_all_by_crop[row.crop] = {}
         for organelle_name, organelle_label in row.organelle_info.items():
             all_to_all_by_crop[row.crop][organelle_name] = {}
-            for metric in EvaluationMetrics:
-                for gt_idx, gt_path in enumerate(image_paths):
-                    for test_idx, test_path in enumerate(image_paths, gt_idx):
-                        df_row_values.append(
-                            [
-                                row.crop,
-                                organelle_name,
-                                organelle_label,
-                                metric,
-                                gt_idx,
-                                test_idx,
-                                gt_path,
-                                test_path,
-                                row.correct_resolution,
-                            ]
-                        )
+            for gt_idx, gt_path in enumerate(image_paths):
+                for test_idx, test_path in enumerate(image_paths, gt_idx):
+                    df_row_values.append(
+                        [
+                            row.crop,
+                            organelle_name,
+                            organelle_label,
+                            gt_idx,
+                            test_idx,
+                            gt_path,
+                            test_path,
+                            row.correct_resolution,
+                        ]
+                    )
     df = pandas.DataFrame(
         df_row_values,
         columns=[
             "crop",
             "organelle_name",
             "organelle_label",
-            "metric",
             "gt_idx",
             "test_idx",
             "gt_path",
