@@ -18,6 +18,12 @@ import dask.distributed
 from dask.distributed import Client
 import pandas
 from dask.diagnostics import ProgressBar
+import collections
+
+Result = collections.namedtuple(
+    "Result",
+    "crop organelle_name metric_value metric_name annotator_names gt_idx test_idx sorting score",
+)
 
 
 def compute_row_score(r) -> List[list]:
@@ -48,33 +54,39 @@ def compute_row_score(r) -> List[list]:
         if score == np.nan_to_num(np.inf):
             score = float("NaN")  # Necessary for plotting
         output_rows.append(
-            [
+            Result(
                 r.crop,
                 r.organelle_name,
+                metric.value,
                 display_name(metric),
+                r.annotator_names,
                 r.gt_idx,
                 r.test_idx,
+                sorting(metric),
                 score,
-            ]
+            )
         )
     return output_rows
 
 
 def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
     mi = MaskInformation()
-    all_to_all_by_crop = {}
-    names_by_crop = {}
     group_rows = [row for row in mi.rows if row.group == group_id]
     df_row_values = []
     for row in group_rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
-        names_by_crop[row.crop] = [n.split(".")[0] for n in all_segmentations]
-        image_paths = [
+        original_annotator_names = [n.split(".")[0] for n in all_segmentations]
+        original_image_paths = [
             f"{input_base_path}/{row.group}/{row.crop}/{f}" for f in all_segmentations
         ]
-        all_to_all_by_crop[row.crop] = {}
         for organelle_name, organelle_label in row.organelle_info.items():
-            all_to_all_by_crop[row.crop][organelle_name] = {}
+            image_paths = []
+            annotator_names = []
+            for idx, p in enumerate(original_image_paths):
+                if not ("ariadne" in p and organelle_name != "mito"):
+                    image_paths.append(p)
+                    annotator_names.append(original_annotator_names[idx])
+
             for gt_idx, gt_path in enumerate(image_paths):
                 for test_idx, test_path in enumerate(image_paths):
                     df_row_values.append(
@@ -82,6 +94,7 @@ def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
                             row.crop,
                             organelle_name,
                             organelle_label,
+                            annotator_names,
                             gt_idx,
                             test_idx,
                             gt_path,
@@ -95,6 +108,7 @@ def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
             "crop",
             "organelle_name",
             "organelle_label",
+            "annotator_names",
             "gt_idx",
             "test_idx",
             "gt_path",
@@ -112,7 +126,7 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
     dask.config.set({"distributed.comm.timeouts.connect": 100})
     client = Client(n_workers=num_workers, threads_per_worker=1)
     print(client.dashboard_link)
-    
+
     lazy_results = []
     for _, row in df.iterrows():
         # images_list_scattered = client.scatter(images_list)
@@ -120,7 +134,7 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
         # results.append(compute_row_score(row))
     with ProgressBar():
         results = dask.compute(*lazy_results)
-
+    results = [metric_row for result in results for metric_row in result]
     return results
     matplotlib.rcParams["figure.dpi"] = 300
     score_ranges = {}
