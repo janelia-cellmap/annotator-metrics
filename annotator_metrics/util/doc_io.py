@@ -49,7 +49,7 @@ class Row:
         self.organelle_info = {}
         for h, c in self.df_row.iteritems():
             if c == "X":
-                organelle_name = h[0].split("(")[0]
+                organelle_name = h[0].split("(")[0].split(" ")[0]
                 organelle_label = int(h[0].split("(")[1].split(")")[0])
                 self.organelle_info[organelle_name] = organelle_label
 
