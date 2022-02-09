@@ -1,4 +1,5 @@
 import os
+from typing import List
 import dask
 import matplotlib
 import numpy as np
@@ -16,55 +17,50 @@ from dask import delayed, compute
 import dask.distributed
 from dask.distributed import Client
 import pandas
+from dask.diagnostics import ProgressBar
 
 
-def compute_row_score(r):
-    all_scores = []
-    metric_params = {
-        "tol_distance": 40,
-        "clip_distance": 200,
-        "threshold": 127,
-    }
-    indices = [r.gt_idx, r.test_idx]
-    images = [tifffile.imread(r.gt_path), tifffile.imread(r.test_path)]
+def compute_row_score(r) -> List[list]:
+    gt_image = tifffile.imread(r.gt_path)
+    test_image = tifffile.imread(r.test_path)
+    if r.organelle_label == 0:
+        gt_image_binary = (gt_image >= 3) & (gt_image <= 5)
+        test_image_binary = (test_image >= 3) & (test_image <= 5)
+    else:
+        gt_image_binary = gt_image == r.organelle_label
+        test_image_binary = test_image == r.organelle_label
 
-    do_swap = r.gt_idx != r.test_idx
-    for swapper in range(1 + do_swap):
-        gt_idx = indices[swapper]
-        test_idx = indices[1 - swapper]
-        gt_image = images[swapper]
-        test_image = images[1 - swapper]
-
-        if r.organelle_label == 0:
-            gt_image_binary = (gt_image >= 3) & (gt_image <= 5)
-            test_image_binary = (test_image >= 3) & (test_image <= 5)
-        else:
-            gt_image_binary = gt_image == r.organelle_label
-            test_image_binary = test_image == r.organelle_label
-
-        evaluator = Evaluator(
-            gt_image_binary,
-            test_image_binary,
-            not gt_image_binary.any(),
-            not test_image_binary.any(),
-            metric_params,
-            resolution=[r.resolution] * 3,
+    metric_params = {"tol_distance": 40, "clip_distance": 200, "threshold": 127}
+    evaluator = Evaluator(
+        gt_image_binary,
+        test_image_binary,
+        not gt_image_binary.any(),
+        not test_image_binary.any(),
+        metric_params,
+        resolution=[r.resolution] * 3,
+    )
+    output_rows = []
+    for metric in EvaluationMetrics:
+        try:
+            score = evaluator.compute_score(metric)
+        except:
+            score = float("NaN")
+        if score == np.nan_to_num(np.inf):
+            score = float("NaN")  # Necessary for plotting
+        output_rows.append(
+            [
+                r.crop,
+                r.organelle_name,
+                display_name(metric),
+                r.gt_idx,
+                r.test_idx,
+                score,
+            ]
         )
-        for metric in EvaluationMetrics:
-            try:
-                score = evaluator.compute_score(metric)
-            except:
-                score = float("NaN")
-            if score == np.nan_to_num(np.inf):
-                score = float("NaN")  # Necessary for plotting
-            all_scores.append(
-                [r.organelle_name, display_name(metric), gt_idx, test_idx, score]
-            )
-    return all_scores
+    return output_rows
 
 
-def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int = 10):
-
+def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
     mi = MaskInformation()
     all_to_all_by_crop = {}
     names_by_crop = {}
@@ -80,7 +76,7 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
         for organelle_name, organelle_label in row.organelle_info.items():
             all_to_all_by_crop[row.crop][organelle_name] = {}
             for gt_idx, gt_path in enumerate(image_paths):
-                for test_idx, test_path in enumerate(image_paths, gt_idx):
+                for test_idx, test_path in enumerate(image_paths):
                     df_row_values.append(
                         [
                             row.crop,
@@ -106,15 +102,24 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
             "resolution",
         ],
     )
+    return df
+
+
+def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int = 10):
+    df = create_dataframe(group_id, input_base_path)
+
     # Setup dask client
     dask.config.set({"distributed.comm.timeouts.connect": 100})
     client = Client(n_workers=num_workers, threads_per_worker=1)
     print(client.dashboard_link)
+    
     lazy_results = []
     for _, row in df.iterrows():
         # images_list_scattered = client.scatter(images_list)
         lazy_results.append(delayed(compute_row_score)(row))
-    results = dask.compute(*lazy_results)
+        # results.append(compute_row_score(row))
+    with ProgressBar():
+        results = dask.compute(*lazy_results)
 
     return results
     matplotlib.rcParams["figure.dpi"] = 300
