@@ -119,6 +119,97 @@ def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
     return df
 
 
+def compile_results_for_plotting(results):
+    all_to_all = {}
+    score_ranges = {}
+    for result in results:
+        score_tuple = (result.crop, result.organelle_name, result.metric_value)
+        if score_tuple not in all_to_all:
+            all_to_all[score_tuple] = {
+                "scores_matrix": np.zeros(
+                    (len(result.annotator_names), len(result.annotator_names))
+                ),
+                "annotator_names": result.annotator_names,
+                "metric_name": result.metric_name,
+            }
+        all_to_all[score_tuple]["scores_matrix"][result.gt_idx][
+            result.test_idx
+        ] = result.score
+
+        score_ranges_tuple = (result.organelle_name, result.metric_value)
+        if score_ranges_tuple not in score_ranges:
+            score_ranges[score_ranges_tuple] = {
+                "min": np.nan_to_num(np.inf),
+                "max": np.nan_to_num(-np.inf),
+                "sorting": result.sorting,
+            }
+        if result.gt_idx != result.test_idx:
+            current_range = score_ranges[score_ranges_tuple]
+            current_range["min"] = np.nanmin([current_range["min"], result.score])
+            current_range["max"] = np.nanmax([current_range["max"], result.score])
+    return all_to_all, score_ranges
+
+
+def plot_figure(
+    group,
+    crop,
+    organelle_name,
+    metric_value,
+    metric_name,
+    annotator_names,
+    all_to_all,
+    score_range,
+    output_path,
+):
+    matplotlib.rcParams["figure.dpi"] = 300
+    matplotlib.rcParams["axes.facecolor"] = "white"
+    matplotlib.rcParams["savefig.facecolor"] = "white"
+
+    _, ax = plt.subplots(1, 1, figsize=(8, 6),)
+    if score_range["sorting"] == 1:  # low to high
+        sort_order = np.argsort(np.nanmean(all_to_all, axis=1))
+        cmap = "rocket_r"
+    else:
+        cmap = "rocket"
+        sort_order = np.argsort(np.nanmean(all_to_all, axis=1))[::-1]
+
+    all_to_all = all_to_all[:, sort_order]
+    all_to_all = all_to_all[sort_order, :]
+    annotator_names = [annotator_names[s] for s in sort_order]
+    seaborn.heatmap(
+        all_to_all,
+        annot=True,
+        square=True,
+        vmin=score_range["min"],
+        vmax=score_range["max"],
+        cmap=cmap,
+    )
+    if score_range["sorting"] == 1:  # low to high
+        plt.gcf().axes[1].invert_yaxis()
+
+    ax.set_title(organelle_name)
+    ax.collections[0].colorbar.set_label(metric_name)
+    ax.xaxis.tick_top()
+    plt.xticks(
+        [i + 0.5 for i in range(len(annotator_names))],
+        annotator_names,
+        rotation=45,
+        ha="left",
+    )
+    plt.yticks(
+        [i + 0.5 for i in range(len(annotator_names))], annotator_names, rotation=0,
+    )
+    output_directory = f"{output_path}/plots/{group}/{crop}/{metric_value}"
+
+    os.makedirs(output_directory, exist_ok=True)
+    try:
+        os.remove(f"{output_directory}/{organelle_name}.png")
+    except OSError:
+        pass
+    plt.savefig(f"{output_directory}/{organelle_name}.png", bbox_inches="tight")
+    plt.close()
+
+
 def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int = 10):
     df = create_dataframe(group_id, input_base_path)
 
@@ -129,98 +220,33 @@ def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int =
 
     lazy_results = []
     for _, row in df.iterrows():
-        # images_list_scattered = client.scatter(images_list)
         lazy_results.append(delayed(compute_row_score)(row))
-        # results.append(compute_row_score(row))
-    with ProgressBar():
-        results = dask.compute(*lazy_results)
+
+    results = dask.compute(*lazy_results)
     results = [metric_row for result in results for metric_row in result]
-    return results
-    matplotlib.rcParams["figure.dpi"] = 300
-    score_ranges = {}
-    for row in group_rows:
-        for organelle_name in row.organelle_info.keys():
-            metric_name = display_name(metric)
-            if organelle_name not in score_ranges:
-                score_ranges[organelle_name] = {}
-            for metric in EvaluationMetrics:
-                metric_name = display_name(metric)
-                if metric_name not in score_ranges[organelle_name]:
-                    score_ranges[organelle_name][metric_name] = {
-                        "min": np.nan_to_num(np.inf),
-                        "max": np.nan_to_num(-np.inf),
-                        "sorting": sorting(metric),
-                    }
+    all_to_all, score_ranges = compile_results_for_plotting(results)
 
-                current_scores_matrix = all_to_all_by_crop[row.crop][organelle_name][
-                    metric_name
-                ]
+    lazy_results = []
+    for score_tuple, score_entry in all_to_all.items():
+        crop = score_tuple[0]
+        organelle_name = score_tuple[1]
+        metric_value = score_tuple[2]
+        metric_name = score_entry["metric_name"]
+        annotator_names = score_entry["annotator_names"]
+        current_all_to_all = score_entry["scores_matrix"]
+        score_range = score_ranges[(organelle_name, metric_value)]
+        lazy_results.append(
+            delayed(plot_figure)(
+                group_id,
+                crop,
+                organelle_name,
+                metric_value,
+                metric_name,
+                annotator_names,
+                current_all_to_all,
+                score_range,
+                output_path="/groups/cosem/cosem/ackermand/annotation_and_analytics/",
+            )
+        )
 
-                # exclude diagonal
-                mask = np.ones(current_scores_matrix.shape, dtype=bool)
-                np.fill_diagonal(mask, 0)
-
-                current_min = np.nanmin(current_scores_matrix[mask])
-                current_max = np.nanmax(current_scores_matrix[mask])
-
-                current_range = score_ranges[organelle_name][metric_name]
-
-                current_range["min"] = np.nanmin([current_range["min"], current_min])
-                current_range["max"] = np.nanmax([current_range["max"], current_max])
-
-    for crop_id, organelle_dict in all_to_all_by_crop.items():
-        for organelle_name, metric_dict in organelle_dict.items():
-            for metric in EvaluationMetrics:
-                current_names_to_use = names_by_crop[crop_id]
-                metric_name = display_name(metric)
-                if metric_name == "F1 Score":
-                    _, ax = plt.subplots(1, 1, figsize=(8, 6),)
-                    current_all_to_all = metric_dict[metric_name].copy()
-                    score_range = score_ranges[organelle_name][metric_name]
-                    if sorting(metric) == 1:  # low to high
-                        sort_order = np.argsort(np.nanmean(current_all_to_all, axis=1))
-                        cmap = "rocket_r"
-                    else:
-                        cmap = "rocket"
-                        sort_order = np.argsort(np.nanmean(current_all_to_all, axis=1))[
-                            ::-1
-                        ]
-
-                    current_all_to_all = current_all_to_all[:, sort_order]
-                    current_all_to_all = current_all_to_all[sort_order, :]
-                    current_names_to_use = [current_names_to_use[s] for s in sort_order]
-                    seaborn.heatmap(
-                        current_all_to_all,
-                        annot=True,
-                        square=True,
-                        vmin=score_range["min"],
-                        vmax=score_range["max"],
-                        cmap=cmap,
-                    )
-                    if score_range["sorting"] == 1:  # low to high
-                        plt.gcf().axes[1].invert_yaxis()
-
-                    ax.set_title(organelle_name)
-                    ax.collections[0].colorbar.set_label(display_name(metric))
-                    ax.xaxis.tick_top()
-                    plt.xticks(
-                        [i + 0.5 for i in range(len(current_names_to_use))],
-                        current_names_to_use,
-                        rotation=45,
-                        ha="left",
-                    )
-                    plt.yticks(
-                        [i + 0.5 for i in range(len(current_names_to_use))],
-                        current_names_to_use,
-                        rotation=0,
-                    )
-                    output_directory = (
-                        f"{input_base_path}/plots/{group_id}/{crop_id}/{metric.value}"
-                    )
-                    os.system(f"mkdir -p {output_directory}")
-                    os.system(f"rm {output_directory}/{organelle_name}.png")
-                    plt.savefig(
-                        f"{output_directory}/{organelle_name}.png", bbox_inches="tight"
-                    )
-                    plt.close()
-
+    dask.compute(*lazy_results)
