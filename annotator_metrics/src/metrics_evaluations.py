@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Union
 import dask
 import matplotlib
 import numpy as np
@@ -17,8 +17,8 @@ from dask import delayed, compute
 import dask.distributed
 from dask.distributed import Client
 import pandas
-from dask.diagnostics import ProgressBar
 import collections
+import socket
 
 Result = collections.namedtuple(
     "Result",
@@ -26,15 +26,25 @@ Result = collections.namedtuple(
 )
 
 
-def compute_row_score(r) -> List[list]:
-    gt_image = tifffile.imread(r.gt_path)
-    test_image = tifffile.imread(r.test_path)
-    if r.organelle_label == 0:
-        gt_image_binary = (gt_image >= 3) & (gt_image <= 5)
-        test_image_binary = (test_image >= 3) & (test_image <= 5)
+def compare_two_images(
+    gt_path: str,
+    test_path: str,
+    organelle_label: Union[int, list],
+    resolution: Union[int, float],
+    metrics_to_calculate: Union[str, list] = None,
+) -> List[list]:
+
+    gt_image = tifffile.imread(gt_path)
+    test_image = tifffile.imread(test_path)
+    if type(organelle_label) == list:
+        gt_image_binary = np.zeros(gt_image.shape, dtype=bool)
+        test_image_binary = np.zeros(gt_image.shape, dtype=bool)
+        for current_organelle_label in organelle_label:
+            gt_image_binary |= gt_image == current_organelle_label
+            test_image_binary |= test_image == current_organelle_label
     else:
-        gt_image_binary = gt_image == r.organelle_label
-        test_image_binary = test_image == r.organelle_label
+        gt_image_binary = gt_image == organelle_label
+        test_image_binary = test_image == organelle_label
 
     metric_params = {"tol_distance": 40, "clip_distance": 200, "threshold": 127}
     evaluator = Evaluator(
@@ -43,17 +53,35 @@ def compute_row_score(r) -> List[list]:
         not gt_image_binary.any(),
         not test_image_binary.any(),
         metric_params,
-        resolution=[r.resolution] * 3,
+        resolution=[resolution] * 3,
     )
-    output_rows = []
+
+    if not metrics_to_calculate or metrics_to_calculate == "all":
+        metrics_to_calculate = [display_name(metric) for metric in EvaluationMetrics]
+
+    scores = []
     for metric in EvaluationMetrics:
-        try:
-            score = evaluator.compute_score(metric)
-        except:
-            score = float("NaN")
-        if score == np.nan_to_num(np.inf):
-            score = float("NaN")  # Necessary for plotting
-        output_rows.append(
+        if display_name(metric) and display_name(metric) in metrics_to_calculate:
+            try:
+                score = evaluator.compute_score(metric)
+            except:
+                score = float("NaN")
+            if score == np.nan_to_num(np.inf):
+                score = float("NaN")  # Necessary for plotting
+            scores.append([metric, score],)
+    return scores
+
+
+def compute_row_score(r, metrics_to_calculate="all") -> List[Result]:
+    scores = compare_two_images(
+        r.gt_path, r.test_path, r.organelle_label, r.resolution, metrics_to_calculate,
+    )
+
+    output_formatted = []
+    for current_score_entry in scores:
+        metric = current_score_entry[0]
+        metric_score = current_score_entry[1]
+        output_formatted.append(
             Result(
                 r.crop,
                 r.organelle_name,
@@ -63,10 +91,10 @@ def compute_row_score(r) -> List[list]:
                 r.gt_idx,
                 r.test_idx,
                 sorting(metric),
-                score,
+                metric_score,
             )
         )
-    return output_rows
+    return output_formatted
 
 
 def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
@@ -210,17 +238,23 @@ def plot_figure(
     plt.close()
 
 
-def calculate_all_to_all(group_id: str, input_base_path: str, num_workers: int = 10):
+def calculate_all_to_all(
+    group_id: str,
+    input_base_path: str,
+    metrics_to_calculate: Union[list, str] = "all",
+    num_workers: int = 10,
+):
     df = create_dataframe(group_id, input_base_path)
 
     # Setup dask client
     dask.config.set({"distributed.comm.timeouts.connect": 100})
     client = Client(n_workers=num_workers, threads_per_worker=1)
-    print(client.dashboard_link)
+    local_ip = socket.gethostbyname(socket.gethostname())
+    print(client.dashboard_link.replace("127.0.0.1", local_ip))
 
     lazy_results = []
     for _, row in df.iterrows():
-        lazy_results.append(delayed(compute_row_score)(row))
+        lazy_results.append(delayed(compute_row_score)(row, metrics_to_calculate))
 
     results = dask.compute(*lazy_results)
     results = [metric_row for result in results for metric_row in result]
