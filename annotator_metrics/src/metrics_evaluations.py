@@ -13,7 +13,7 @@ from CNNectome.validation.organelles.segmentation_metrics import (
     display_name,
     sorting,
 )
-from dask import delayed, compute
+from dask import delayed
 import dask.distributed
 from dask.distributed import Client
 import pandas
@@ -61,7 +61,7 @@ def compare_two_images(
 
     scores = []
     for metric in EvaluationMetrics:
-        if display_name(metric) and display_name(metric) in metrics_to_calculate:
+        if display_name(metric) in metrics_to_calculate:
             try:
                 score = evaluator.compute_score(metric)
             except:
