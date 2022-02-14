@@ -54,7 +54,7 @@ class Row:
                 self.organelle_info[organelle_name] = organelle_label
 
         if set(self.organelle_info.values()).intersection(set([3, 4, 5])):
-            self.organelle_info["mito"] = 0
+            self.organelle_info["mito"] = [3, 4, 5]
 
     def is_valid(self):
         return self._is_valid
