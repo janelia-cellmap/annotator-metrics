@@ -61,9 +61,11 @@ class Row:
 
 
 class MaskInformation:
-    def __init__(self):
+    def __init__(self, group=None):
         self.__get_df_from_doc()
         self.__get_organelle_info()
+        if group:
+            self.rows = [row for row in self.rows if row.group in group]
 
     def __get_df_from_doc(self):
         received = requests.get(
