@@ -127,7 +127,7 @@ predictions_and_segmentations = {
 labels_dict = {"mito": 4, "mito_membrane": 3, "mito_lumen": 4, "mito_dna": 5}
 
 
-def get_predictions_and_refinements(group_crop: str, output_path: str):
+def get_predictions_and_refinements(group_crop: str):
     # we will label mito as 4 so that when we then label membrane, lumen+mito_membrane will be mito
     full_image_dict = {}
     if group_crop not in predictions_and_segmentations:
@@ -217,40 +217,37 @@ def copy_data(
     output_base_path: str,
     input_base_path: str = "/groups/cosem/cosem/annotations/training/",
 ):
-    mask_information = MaskInformation()
+    mask_information = MaskInformation(group)
     for row in mask_information.rows:
-        if row.group in group:
-            crop = row.crop
-            cropper = Cropper(row.mins, row.maxs)
+        crop = row.crop
+        cropper = Cropper(row.mins, row.maxs)
 
-            current_input_path = f"{input_base_path}/{group}-labels/{group}_{crop}/"
-            current_output_path = f"{output_base_path}/{group}/{crop}/"
-            os.makedirs(current_output_path, exist_ok=True)
+        current_input_path = f"{input_base_path}/{group}-labels/{group}_{crop}/"
+        current_output_path = f"{output_base_path}/{group}/{crop}/"
+        os.makedirs(current_output_path, exist_ok=True)
 
-            # do the croopping for annotators
-            for annotator_directory in os.listdir(current_input_path):
-                im = tifffile.imread(
-                    f"{current_input_path}/{annotator_directory}/{annotator_directory}.tif"
-                )
-                im_cropped = cropper.crop(im)
-                annotator = annotator_directory.split("_")[-1][::-1]
-                tifffile.imwrite(f"{current_output_path}/{annotator}.tif", im_cropped)
-
-            # do predictions and refinements
-            full_im_dict = get_predictions_and_refinements(
-                f"{group}_{crop}", current_output_path
+        # do the croopping for annotators
+        for annotator_directory in os.listdir(current_input_path):
+            im = tifffile.imread(
+                f"{current_input_path}/{annotator_directory}/{annotator_directory}.tif"
             )
-            for name, im in full_im_dict.items():
-                im_cropped = cropper.crop(im)
-                tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
+            im_cropped = cropper.crop(im)
+            annotator = annotator_directory.split("_")[-1][::-1]
+            tifffile.imwrite(f"{current_output_path}/{annotator}.tif", im_cropped)
 
-            # do the cropping for ground truth
-            with h5py.File(row.gt_path, "r") as f:
-                im = f["volumes"]["labels"]["gt"][:]
-                im_cropped = cropper.crop(
-                    im, upscale_factor=row.gt_resolution // row.correct_resolution
-                )
-                tifffile.imwrite(
-                    f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
-                )
+        # do predictions and refinements
+        full_im_dict = get_predictions_and_refinements(f"{group}_{crop}")
+        for name, im in full_im_dict.items():
+            im_cropped = cropper.crop(im)
+            tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
+
+        # do the cropping for ground truth
+        with h5py.File(row.gt_path, "r") as f:
+            im = f["volumes"]["labels"]["gt"][:]
+            im_cropped = cropper.crop(
+                im, upscale_factor=row.gt_resolution // row.correct_resolution
+            )
+            tifffile.imwrite(
+                f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
+            )
 
