@@ -98,10 +98,9 @@ def compute_row_score(r, metrics_to_calculate="all") -> List[Result]:
 
 
 def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
-    mi = MaskInformation()
-    group_rows = [row for row in mi.rows if row.group == group_id]
+    mi = MaskInformation(group_id)
     df_row_values = []
-    for row in group_rows:
+    for row in mi.rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
         original_annotator_names = [n.split(".")[0] for n in all_segmentations]
         original_image_paths = [
@@ -284,3 +283,4 @@ def calculate_all_to_all(
         )
 
     dask.compute(*lazy_results)
+    return all_to_all, score_ranges
