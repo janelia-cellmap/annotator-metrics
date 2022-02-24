@@ -8,6 +8,7 @@ import zarr
 import socket
 from dask.distributed import Client
 import dask
+import neuroglancer
 
 
 class Cropper:
@@ -156,3 +157,29 @@ def create_variance_images(input_path, group, output_path, num_workers=10):
 
     dask.compute(*lazy_results)
 
+
+def get_neuroglancer_view_of_crop(
+    path_relative_to_served_directory,
+    served_directory="/groups/cellmap/cellmap/ackermand/",
+    server_url="http://10.150.100.248:8080",
+):
+    path = f"n5://{server_url}/{path_relative_to_served_directory}"
+    dirs = [
+        d
+        for d in os.listdir(f"{served_directory}/{path_relative_to_served_directory}")
+        if d not in ["gt", "raw", "attributes.json"]
+    ]
+    dirs.sort()
+    dirs.insert(0, "gt")
+    viewer = neuroglancer.Viewer()
+    with viewer.txn() as s:
+        s.layers["raw"] = neuroglancer.ImageLayer(source=f"{path}/raw",)
+        for d in dirs:
+            if "variance" not in d:
+                s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
+            else:
+                s.layers[d] = neuroglancer.ImageLayer(source=f"{path}/{d}",)
+            s.layers[d].visible = False
+
+    print(neuroglancer.to_url(viewer.state).replace("https://", "http://"))
+    neuroglancer.stop()
