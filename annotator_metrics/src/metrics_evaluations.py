@@ -278,7 +278,7 @@ def calculate_all_to_all(
                 annotator_names,
                 current_all_to_all,
                 score_range,
-                output_path="/groups/cosem/cosem/ackermand/annotation_and_analytics/",
+                output_path="/groups/cellmap/cellmap/ackermand/annotation_and_analytics/",
             )
         )
 

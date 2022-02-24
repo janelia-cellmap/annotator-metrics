@@ -29,7 +29,7 @@ class Row:
             if not isinstance(val, str):
                 return int(val)
             elif "Z:" in val:
-                return val.replace("\\", "/").replace("Z:", "/groups/cosem/cosem")
+                return val.replace("\\", "/").replace("Z:", "/groups/cellmap/cellmap")
             return val
 
     def __get_useful_columns(self):

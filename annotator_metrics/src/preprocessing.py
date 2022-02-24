@@ -15,21 +15,21 @@ predictions_and_segmentations = {
         "types": {
             "predictions": {
                 "mito": {
-                    "path": "/nrs/cosem/cosem/training/v0003.2/setup03/Macrophage_FS80_Cell2_4x4x4nm/Cryo_FS80_Cell2_4x4x4nm_it1100000.n5",
+                    "path": "/nrs/cellmap/cosem/training/v0003.2/setup03/Macrophage_FS80_Cell2_4x4x4nm/Cryo_FS80_Cell2_4x4x4nm_it1100000.n5",
                     "name": "mito",
                 },
                 "mito_membrane": {
-                    "path": "/nrs/cosem/cosem/training/v0003.2/setup03/Macrophage_FS80_Cell2_4x4x4nm/Cryo_FS80_Cell2_4x4x4nm_it650000.n5",
+                    "path": "/nrs/cellmap/cosem/training/v0003.2/setup03/Macrophage_FS80_Cell2_4x4x4nm/Cryo_FS80_Cell2_4x4x4nm_it650000.n5",
                     "name": "mito_membrane",
                 },
             },
             "refinements": {
                 "mito": {
-                    "path": "/groups/cosem/cosem/ackermand/paperResultsWithFullPaths/collected/renumbered/Macrophage.n5",
+                    "path": "/groups/cellmap/cellmap/ackermand/paperResultsWithFullPaths/collected/renumbered/Macrophage.n5",
                     "name": "mito_cropped",
                 },
                 "mito_membrane": {
-                    "path": "/groups/cosem/cosem/ackermand/paperResultsWithFullPaths/collected/renumbered/Macrophage.n5",
+                    "path": "/groups/cellmap/cellmap/ackermand/paperResultsWithFullPaths/collected/renumbered/Macrophage.n5",
                     "name": "mito_membrane",
                 },
             },
@@ -47,27 +47,27 @@ predictions_and_segmentations = {
         "types": {
             "predictions": {
                 "mito": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito",
                 },
                 "mito_membrane": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito_membrane",
                 },
             },
             "refinements": {
                 "mito": {
-                    "path": "/groups/cosem/cosem/ackermand/cosem/jrc_mus-liver.n5/watershedAndAgglomeration/mito.n5",
+                    "path": "/groups/cellmap/cellmap/ackermand/cosem/jrc_mus-liver.n5/watershedAndAgglomeration/mito.n5",
                     "name": "25_0.975_smoothed_renumbered_filled_renumbered_cropped",
                 },
                 "mito_membrane": {
-                    "path": "/groups/cosem/cosem/ackermand/cosem/withFullPaths/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/groups/cellmap/cellmap/ackermand/cosem/withFullPaths/training/finetuning/jrc_mus-liver/liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito_membrane_labeledWith_mito",
                 },
             },
             "ariadne": {
                 "mito": {
-                    "path": "/groups/cosem/cosem/bennettd/ariadne/jrc_mus-liver.n5",
+                    "path": "/groups/cellmap/cellmap/bennettd/ariadne/jrc_mus-liver.n5",
                     "name": "mito_instance",
                 },
                 #'mito_membrane':{'path': '/groups/cosem/cosem/bennettd/ariadne/jrc_mus-liver.n5', 'name':'cristae_instance'}
@@ -86,11 +86,11 @@ predictions_and_segmentations = {
         "types": {
             "predictions": {
                 "mito": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/group1_08_liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/group1_08_liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito",
                 },
                 "mito_membrane": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/group1_08_liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/group1_08_liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito_membrane",
                 },
             },
@@ -108,11 +108,11 @@ predictions_and_segmentations = {
         "types": {
             "predictions": {
                 "mito": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/group1_10_liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/group1_10_liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito",
                 },
                 "mito_membrane": {
-                    "path": "/nrs/cosem/pattonw/training/finetuning/jrc_mus-liver/group1_10_liver_latest_setup04_many_masked_6-1_100000.n5",
+                    "path": "/nrs/cellmap/pattonw/training/finetuning/jrc_mus-liver/group1_10_liver_latest_setup04_many_masked_6-1_100000.n5",
                     "name": "mito_membrane",
                 },
             },
@@ -215,7 +215,7 @@ def get_predictions_and_refinements(group_crop: str):
 def copy_data(
     group: Union[str, list],
     output_base_path: str,
-    input_base_path: str = "/groups/cosem/cosem/annotations/training/",
+    input_base_path: str = "/groups/cellmap/cellmap/annotations/training/",
 ):
     mask_information = MaskInformation(group)
     for row in mask_information.rows:
