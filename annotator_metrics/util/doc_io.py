@@ -1,3 +1,4 @@
+from typing import Union
 import requests
 import pandas
 from io import StringIO
@@ -80,18 +81,20 @@ class Row:
 
 
 class MaskInformation:
-    def __init__(self, group=None, crop=None):
+    def __init__(self, group: str = None, crop: Union[list, str] = None):
         self.__get_df_from_doc()
         self.__get_organelle_info()
+
         if group:
-            if crop and crop != "all":
-                self.rows = [
-                    row
-                    for row in self.rows
-                    if (row.group == group and row.crop == crop)
-                ]
-            else:
-                self.rows = [row for row in self.rows if row.group == group]
+            filtered_rows = []
+            for row in self.rows:
+                if row.group in group:
+                    if crop:
+                        if row.crop in crop:
+                            filtered_rows.append(row)
+                    else:
+                        filtered_rows.append(row)
+            self.rows = filtered_rows
 
     def __get_df_from_doc(self):
         received = requests.get(
