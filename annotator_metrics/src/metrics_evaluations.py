@@ -98,7 +98,9 @@ def compute_row_score(r, metrics_to_calculate="all") -> List[Result]:
     return output_formatted
 
 
-def create_dataframe(group: str, crop: str, input_base_path: str) -> pandas.DataFrame:
+def create_dataframe(
+    group: str, crop: Union[list, str], input_base_path: str
+) -> pandas.DataFrame:
     mi = MaskInformation(group, crop)
     df_row_values = []
     for row in mi.rows:
@@ -205,6 +207,27 @@ def plot_figure(
     all_to_all = all_to_all[sort_order, :]
     annotator_names = [annotator_names[s] for s in sort_order]
 
+    # write out csvs of data:
+    output_directory = f"{output_path}/csvs/{group}/{crop}/{metric_value}"
+    os.makedirs(output_directory, exist_ok=True)
+    try:
+        os.remove(f"{output_directory}/{organelle_name}.csv")
+    except OSError:
+        pass
+
+    ignored = ["refinements", "ariadne"]
+    with open(f"{output_directory}/{organelle_name}.csv", "w") as f:
+        f.write(f"annotator 1,annotator 2,{metric_name}\n")
+        for i in range(len(annotator_names)):
+            for j in range(i):
+                if (
+                    annotator_names[i] not in ignored
+                    and annotator_names[j] not in ignored
+                ):
+                    f.write(
+                        f"{annotator_names[i]},{annotator_names[j]},{all_to_all[i][j]}\n"
+                    )
+
     for color_range in ["standard", "combined"]:
         if color_range == "standard":
             mask = ~np.eye(all_to_all.shape[0], dtype=bool)
@@ -256,7 +279,7 @@ def calculate_all_to_all(
     input_base_path: str,
     metrics_to_calculate: Union[list, str] = "all",
     num_workers: int = 10,
-    crop: str = None,
+    crop: Union[list, str] = None,
 ):
     df = create_dataframe(group, crop, input_base_path)
 
@@ -274,6 +297,7 @@ def calculate_all_to_all(
     results = [metric_row for result in results for metric_row in result]
     all_to_all, score_ranges = compile_results_for_plotting(results)
 
+    output_path = "/groups/cellmap/cellmap/ackermand/annotation_and_analytics/"
     lazy_results = []
     for score_tuple, score_entry in all_to_all.items():
         crop = score_tuple[0]
@@ -283,16 +307,18 @@ def calculate_all_to_all(
         annotator_names = score_entry["annotator_names"]
         current_all_to_all = score_entry["scores_matrix"]
         score_range = score_ranges[(organelle_name, metric_value)]
-        output_path = "/groups/cellmap/cellmap/ackermand/annotation_and_analytics/"
 
-        #clean up plot dirs before creating images
+        # clean up plot dirs before creating images
         for plot_type in ["plots_standard_color", "plots"]:
             output_directory = (
                 f"{output_path}/{plot_type}/{group}/{crop}/{metric_value}"
             )
             if os.path.isdir(output_directory):
                 shutil.rmtree(output_directory)
-    
+        output_directory = f"{output_path}/csvs/{group}/{crop}/{metric_value}"
+        if os.path.isdir(output_directory):
+            shutil.rmtree(output_directory)
+
         lazy_results.append(
             delayed(plot_figure)(
                 group,
