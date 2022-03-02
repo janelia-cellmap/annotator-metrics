@@ -33,18 +33,9 @@ labels_dict_by_group = {
 
 
 def update_path(path):
+    path = os.path.abspath(path)
     path = path.replace("nrs/cosem/", "nrs/cellmap/")
     path = path.replace("groups/cosem/cosem/", "groups/cellmap/cellmap/")
-    return path
-
-
-def follow_symlinks(path: str):
-    path = update_path(path)
-    if os.path.islink(path):
-        symlink_path = os.readlink(path)
-        if symlink_path[0] != "/":  # then it is a relative path
-            symlink_path = path.rsplit("/", 1)[0] + "/" + symlink_path
-        path = follow_symlinks(symlink_path)
     return path
 
 
@@ -73,6 +64,16 @@ def update_symlinks(path_glob: str):
         for dataset in glob.glob(f"{cell_dir}/mesh/*"):
             if os.path.islink(dataset):
                 update_symlink(dataset)
+
+
+def follow_symlinks(path: str):
+    path = update_path(path)
+    if os.path.islink(path):
+        symlink_path = os.readlink(path)
+        if symlink_path[0] != "/":  # then it is a relative path
+            symlink_path = path.rsplit("/", 1)[0] + "/" + symlink_path
+        path = follow_symlinks(symlink_path)
+    return path
 
 
 def get_resolution_and_offset_from_zarr(zarr_array):
