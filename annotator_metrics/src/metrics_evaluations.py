@@ -19,6 +19,7 @@ from dask.distributed import Client
 import pandas
 import collections
 import socket
+import shutil
 
 Result = collections.namedtuple(
     "Result",
@@ -97,8 +98,8 @@ def compute_row_score(r, metrics_to_calculate="all") -> List[Result]:
     return output_formatted
 
 
-def create_dataframe(group_id: str, input_base_path: str) -> pandas.DataFrame:
-    mi = MaskInformation(group_id)
+def create_dataframe(group: str, crop: str, input_base_path: str) -> pandas.DataFrame:
+    mi = MaskInformation(group, crop)
     df_row_values = []
     for row in mi.rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
@@ -194,56 +195,70 @@ def plot_figure(
 
     _, ax = plt.subplots(1, 1, figsize=(8, 6),)
     if score_range["sorting"] == 1:  # low to high
-        sort_order = np.argsort(np.nanmean(all_to_all, axis=1))
+        sort_order = np.argsort(np.nanmean(all_to_all, axis=0))
         cmap = "rocket_r"
     else:
         cmap = "rocket"
-        sort_order = np.argsort(np.nanmean(all_to_all, axis=1))[::-1]
+        sort_order = np.argsort(np.nanmean(all_to_all, axis=0))[::-1]
 
     all_to_all = all_to_all[:, sort_order]
     all_to_all = all_to_all[sort_order, :]
     annotator_names = [annotator_names[s] for s in sort_order]
-    seaborn.heatmap(
-        all_to_all,
-        annot=True,
-        square=True,
-        vmin=score_range["min"],
-        vmax=score_range["max"],
-        cmap=cmap,
-    )
-    if score_range["sorting"] == 1:  # low to high
-        plt.gcf().axes[1].invert_yaxis()
 
-    ax.set_title(organelle_name)
-    ax.collections[0].colorbar.set_label(metric_name)
-    ax.xaxis.tick_top()
-    plt.xticks(
-        [i + 0.5 for i in range(len(annotator_names))],
-        annotator_names,
-        rotation=45,
-        ha="left",
-    )
-    plt.yticks(
-        [i + 0.5 for i in range(len(annotator_names))], annotator_names, rotation=0,
-    )
-    output_directory = f"{output_path}/plots/{group}/{crop}/{metric_value}"
+    for color_range in ["standard", "combined"]:
+        if color_range == "standard":
+            mask = ~np.eye(all_to_all.shape[0], dtype=bool)
+            score_range_min = np.nanmin(all_to_all[mask])
+            score_range_max = np.nanmax(all_to_all[mask])
+            output_directory = (
+                f"{output_path}/plots_standard_color/{group}/{crop}/{metric_value}"
+            )
+        else:
+            score_range_min = score_range["min"]
+            score_range_max = score_range["max"]
+            output_directory = f"{output_path}/plots/{group}/{crop}/{metric_value}"
 
-    os.makedirs(output_directory, exist_ok=True)
-    try:
-        os.remove(f"{output_directory}/{organelle_name}.png")
-    except OSError:
-        pass
-    plt.savefig(f"{output_directory}/{organelle_name}.png", bbox_inches="tight")
-    plt.close()
+        seaborn.heatmap(
+            all_to_all,
+            annot=True,
+            square=True,
+            vmin=score_range_min,
+            vmax=score_range_max,
+            cmap=cmap,
+        )
+        if score_range["sorting"] == 1:  # low to high
+            plt.gcf().axes[1].invert_yaxis()
+
+        ax.set_title(organelle_name)
+        ax.collections[0].colorbar.set_label(metric_name)
+        ax.xaxis.tick_top()
+        plt.xticks(
+            [i + 0.5 for i in range(len(annotator_names))],
+            annotator_names,
+            rotation=45,
+            ha="left",
+        )
+        plt.yticks(
+            [i + 0.5 for i in range(len(annotator_names))], annotator_names, rotation=0,
+        )
+
+        os.makedirs(output_directory, exist_ok=True)
+        try:
+            os.remove(f"{output_directory}/{organelle_name}.png")
+        except OSError:
+            pass
+        plt.savefig(f"{output_directory}/{organelle_name}.png", bbox_inches="tight")
+        plt.close()
 
 
 def calculate_all_to_all(
-    group_id: str,
+    group: str,
     input_base_path: str,
     metrics_to_calculate: Union[list, str] = "all",
     num_workers: int = 10,
+    crop: str = None,
 ):
-    df = create_dataframe(group_id, input_base_path)
+    df = create_dataframe(group, crop, input_base_path)
 
     # Setup dask client
     dask.config.set({"distributed.comm.timeouts.connect": 100})
@@ -268,9 +283,19 @@ def calculate_all_to_all(
         annotator_names = score_entry["annotator_names"]
         current_all_to_all = score_entry["scores_matrix"]
         score_range = score_ranges[(organelle_name, metric_value)]
+        output_path = "/groups/cellmap/cellmap/ackermand/annotation_and_analytics/"
+
+        #clean up plot dirs before creating images
+        for plot_type in ["plots_standard_color", "plots"]:
+            output_directory = (
+                f"{output_path}/{plot_type}/{group}/{crop}/{metric_value}"
+            )
+            if os.path.isdir(output_directory):
+                shutil.rmtree(output_directory)
+    
         lazy_results.append(
             delayed(plot_figure)(
-                group_id,
+                group,
                 crop,
                 organelle_name,
                 metric_value,

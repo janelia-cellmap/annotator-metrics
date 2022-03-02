@@ -13,8 +13,8 @@ import neuroglancer
 
 class Cropper:
     def __init__(self, mins, maxs):
-        self.mins = tuple(mins)
-        self.maxs = tuple(maxs)
+        self.mins = mins
+        self.maxs = maxs
 
     def crop(self, im, upscale_factor=1):
         if upscale_factor != 1:
@@ -25,9 +25,9 @@ class Cropper:
             )
 
         im = im[
-            self.mins[0] : self.maxs[0],
-            self.mins[1] : self.maxs[1],
             self.mins[2] : self.maxs[2],
+            self.mins[1] : self.maxs[1],
+            self.mins[0] : self.maxs[0],
         ]
         return im
 
@@ -38,23 +38,23 @@ def create_crop_variance_image(input_path, row, zarr_root):
 
     # segmentations
     for image_name in image_names:
+        current_image = tifffile.imread(
+            f"{input_path}/{row.group}/{row.crop}/{image_name}"
+        )
         if not any(s in image_name for s in ["ariadne", "predictions", "refinements"]):
-            current_image = tifffile.imread(
-                f"{input_path}/{row.group}/{row.crop}/{image_name}"
-            )
             images.append(current_image)
-            ds = zarr_root.create_dataset(
-                name=image_name.split(".")[0],
-                data=current_image.astype(np.uint8),
-                shape=current_image.shape,
-                chunks=32,
-                write_empty_chunks=True,
-            )
-            attributes = ds.attrs
-            attributes["pixelResolution"] = {
-                "dimensions": 3 * [row.correct_resolution],
-                "unit": "nm",
-            }
+        ds = zarr_root.create_dataset(
+            name=image_name.split(".")[0],
+            data=current_image.astype(np.uint8),
+            shape=current_image.shape,
+            chunks=32,
+            write_empty_chunks=True,
+        )
+        attributes = ds.attrs
+        attributes["pixelResolution"] = {
+            "dimensions": 3 * [row.correct_resolution],
+            "unit": "nm",
+        }
 
     # variance
     for organelle_name, organelle_label in row.organelle_info.items():
@@ -137,8 +137,8 @@ def get_raw_image(row, zarr_root):
         }
 
 
-def create_variance_images(input_path, group, output_path, num_workers=10):
-    mi = MaskInformation(group)
+def create_variance_images(input_path, group, output_path, num_workers=10, crop=None):
+    mi = MaskInformation(group, crop)
     client = Client(n_workers=num_workers, threads_per_worker=1)
     local_ip = socket.gethostbyname(socket.gethostname())
     print(client.dashboard_link.replace("127.0.0.1", local_ip))
@@ -160,17 +160,36 @@ def create_variance_images(input_path, group, output_path, num_workers=10):
 
 def get_neuroglancer_view_of_crop(
     path_relative_to_served_directory,
-    served_directory="/groups/cellmap/cellmap/ackermand/",
+    served_directory="/groups/cellmap/cellmap/",
     server_url="http://10.150.100.248:8080",
 ):
     path = f"n5://{server_url}/{path_relative_to_served_directory}"
+    dir_list = os.listdir(f"{served_directory}/{path_relative_to_served_directory}")
     dirs = [
         d
-        for d in os.listdir(f"{served_directory}/{path_relative_to_served_directory}")
-        if d not in ["gt", "raw", "attributes.json"]
+        for d in dir_list
+        if (
+            d
+            not in [
+                "gt",
+                "raw",
+                "attributes.json",
+                "predictions",
+                "refinements",
+                "ariadne",
+            ]
+            and "variance" not in d
+        )
     ]
     dirs.sort()
     dirs.insert(0, "gt")
+    for result_type in ["predictions","refinements","ariadne"]:
+        if result_type in dir_list:
+            dirs.append(result_type)
+
+    variance_images = [d for d in dir_list if "variance" in d]
+    variance_images.sort()
+    dirs += variance_images
     viewer = neuroglancer.Viewer()
     with viewer.txn() as s:
         s.layers["raw"] = neuroglancer.ImageLayer(source=f"{path}/raw",)

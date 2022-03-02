@@ -2,6 +2,7 @@ import requests
 import pandas
 from io import StringIO
 import re
+import numpy as np
 
 
 class Row:
@@ -11,17 +12,21 @@ class Row:
         try:
             self.__get_useful_columns()
             self.__get_organelle_info()
-        except:
+        except Exception as e:
             self._is_valid = False
 
     def __get_column(self, column):
         c = self.df_row[column]
         if "x" in c:
-            return [int(c["z"]), int(c["y"]), int(c["x"])]
+            return np.array([int(c["x"]), int(c["y"]), int(c["z"])], dtype=int)
         elif "x min" in c:
             return (
-                [int(c["z min"]), int(c["y min"]), int(c["x min"])],
-                [int(c["z max"]), int(c["y max"]), int(c["x max"])],
+                np.array(
+                    [int(c["x min"]), int(c["y min"]), int(c["z min"])], dtype=int
+                ),
+                np.array(
+                    [int(c["x max"]), int(c["y max"]), int(c["z max"])], dtype=int
+                ),
             )
         else:
             # Way to treat it when  contains eg unnamed 0_level_0
@@ -39,6 +44,9 @@ class Row:
         self.raw_path = self.__get_column("raw data")
         self.gt_path = self.__get_column("crop pathway")
         self.original_coordinates = self.__get_column("original coordinates")
+        self.converted_4nm_coordinates = self.__get_column("converted 4nm coordinates")
+        self.original_crop_size = self.__get_column("original crop size (pixels)")
+        self.raw_resolution = self.__get_column("raw resolution (nm)")
         self.gt_resolution = self.__get_column("groundtruth annotation resolution (nm)")
         self.correct_resolution = self.__get_column(
             "correct annotation resolution (nm)"
@@ -53,19 +61,37 @@ class Row:
                 organelle_label = int(h[0].split("(")[1].split(")")[0])
                 self.organelle_info[organelle_name] = organelle_label
 
-        if set(self.organelle_info.values()).intersection(set([3, 4, 5])):
-            self.organelle_info["mito"] = [3, 4, 5]
+        combined_labels = {
+            "mito": [3, 4, 5],
+            "er": [16, 17, 18, 19],
+            "eres": [18, 19],
+            "golgi": [6, 7],
+            "vesicle": [8, 9],
+            "endo": [10, 11],
+            "lyso": [12, 13],
+        }
+        all_values = set(self.organelle_info.values())
+        for organelle, labels in combined_labels.items():
+            if set(all_values).intersection(set(labels)):
+                self.organelle_info[organelle] = labels
 
     def is_valid(self):
         return self._is_valid
 
 
 class MaskInformation:
-    def __init__(self, group=None):
+    def __init__(self, group=None, crop=None):
         self.__get_df_from_doc()
         self.__get_organelle_info()
         if group:
-            self.rows = [row for row in self.rows if row.group in group]
+            if crop and crop != "all":
+                self.rows = [
+                    row
+                    for row in self.rows
+                    if (row.group == group and row.crop == crop)
+                ]
+            else:
+                self.rows = [row for row in self.rows if row.group == group]
 
     def __get_df_from_doc(self):
         received = requests.get(
