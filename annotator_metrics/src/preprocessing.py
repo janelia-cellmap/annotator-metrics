@@ -1,5 +1,5 @@
 import os
-from typing import Union
+from typing import Dict, Tuple, Union
 import numpy as np
 import h5py
 import zarr
@@ -32,14 +32,14 @@ labels_dict_by_group = {
 # if lumen, remove it put it first
 
 
-def update_path(path):
+def update_path(path: str) -> str:
     path = os.path.abspath(path)
     path = path.replace("nrs/cosem/", "nrs/cellmap/")
     path = path.replace("groups/cosem/cosem/", "groups/cellmap/cellmap/")
     return path
 
 
-def update_symlink(path: str):
+def update_symlink(path: str) -> str:
     path = update_path(path)
     if os.path.islink(path):
         symlink_path = os.readlink(path)
@@ -53,7 +53,7 @@ def update_symlink(path: str):
     return path
 
 
-def update_symlinks(path_glob: str):
+def update_symlinks(path_glob: str) -> None:
     for cell_dir in glob.glob(path_glob):
         cell_name = cell_dir.split("/")[-1]
         for dataset in glob.glob(f"{cell_dir}/{cell_name}.n5/*"):
@@ -66,7 +66,7 @@ def update_symlinks(path_glob: str):
                 update_symlink(dataset)
 
 
-def follow_symlinks(path: str):
+def follow_symlinks(path: str) -> str:
     path = update_path(path)
     if os.path.islink(path):
         symlink_path = os.readlink(path)
@@ -76,7 +76,9 @@ def follow_symlinks(path: str):
     return path
 
 
-def get_resolution_and_offset_from_zarr(zarr_array):
+def get_resolution_and_offset_from_zarr(
+    zarr_array: zarr.Group,
+) -> Tuple[Union[int, float], np.ndarray]:
     attrs = zarr_array.attrs.asdict()
     if "transformation" in attrs:
         resolution = attrs["transformation"]["scale"][0]
@@ -95,8 +97,9 @@ def get_resolution_and_offset_from_zarr(zarr_array):
 
 
 def get_predictions_and_refinements_from_row(
-    row: Row, base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/"
-):
+    row: Row,
+    base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/",
+) -> Dict[str, np.ndarray]:
     # need to figure out labeling
     cell_name = row.raw_path.split("/")[-1].split(".n5")[0]
     base_path = f"{base_path}/{cell_name}/{cell_name}.n5/"
@@ -181,7 +184,9 @@ def get_predictions_and_refinements_from_row(
     return full_image_dict
 
 
-def annotator_cropping(group, crop, cropper, current_output_path):
+def crop_annotations(
+    group: str, crop: str, cropper: Cropper, current_output_path: str
+) -> None:
     input_base_path = "/groups/cellmap/cellmap/annotation_and_analytics/training"
     for annotator_name in os.listdir(input_base_path):
         annotator_dir = f"{input_base_path}/{annotator_name}"
@@ -233,8 +238,14 @@ def annotator_cropping(group, crop, cropper, current_output_path):
                         )
 
 
-def copy_data(group: Union[str, list], output_base_path: str, crop: str = None):
+def copy_data(group: Union[str, list], output_base_path: str, crop: str = None) -> None:
+    """Copies data from all source locations to specified output location.
 
+    Args:
+        group (Union[str, list]): Group(s) to copy.
+        output_base_path (str): Path to copy data to.
+        crop (str, optional): Specific crop to copy. Defaults to None.
+    """
     mask_information = MaskInformation(group, crop)
     for row in mask_information.rows:
         crop = row.crop
@@ -245,7 +256,7 @@ def copy_data(group: Union[str, list], output_base_path: str, crop: str = None):
         os.makedirs(current_output_path)
 
         # do the croopping for annotators
-        annotator_cropping(group, crop, cropper, current_output_path)
+        crop_annotations(group, crop, cropper, current_output_path)
 
         # do predictions and refinements
         full_im_dict = get_predictions_and_refinements_from_row(row)
@@ -262,4 +273,3 @@ def copy_data(group: Union[str, list], output_base_path: str, crop: str = None):
             tifffile.imwrite(
                 f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
             )
-

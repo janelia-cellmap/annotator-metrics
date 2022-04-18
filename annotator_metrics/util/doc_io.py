@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Tuple, Union
 import requests
 import pandas
 from io import StringIO
@@ -7,7 +7,7 @@ import numpy as np
 
 
 class Row:
-    def __init__(self, df_row):
+    def __init__(self, df_row: pandas.Series):
         self.df_row = df_row
         self._is_valid = True
         try:
@@ -16,7 +16,7 @@ class Row:
         except Exception as e:
             self._is_valid = False
 
-    def __get_column(self, column):
+    def __get_column(self, column: str) -> Union[int, str, np.ndarray, Tuple(np.ndarray, np.ndarray)]:
         c = self.df_row[column]
         if "x" in c:
             return np.array([int(c["x"]), int(c["y"]), int(c["z"])], dtype=int)
