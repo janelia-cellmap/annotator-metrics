@@ -1,4 +1,6 @@
+from typing import Union
 import h5py
+from numcodecs.gzip import GZip
 from annotator_metrics.util.doc_io import MaskInformation, Row
 import tifffile
 import os
@@ -9,6 +11,7 @@ import socket
 from dask.distributed import Client
 import dask
 import neuroglancer
+from IPython.core.display import display, HTML
 
 
 class Cropper:
@@ -32,6 +35,27 @@ class Cropper:
         return im
 
 
+def zarr_create_dataset_suppress_warnings(
+    zarr_root: zarr.Group,
+    name: str,
+    data: np.ndarray,
+    shape: tuple,
+    chunks: int,
+    write_empty_chunks: bool,
+):
+
+    # I expect to see RuntimeWarnings in this block for mean of empty slice
+    with warnings.catch_warnings():
+        warnings.filterwarnings(action="ignore", message="Mean of empty slice")
+        zarr_root.create_dataset(
+            name=name,
+            data=data,
+            shape=shape,
+            chunks=chunks,
+            write_empty_chunks=write_empty_chunks,
+        )
+
+
 def create_crop_variance_image(
     input_path: str, row: Row, zarr_root: zarr.Group
 ) -> None:
@@ -51,6 +75,7 @@ def create_crop_variance_image(
             shape=current_image.shape,
             chunks=32,
             write_empty_chunks=True,
+            compressor=GZip(level=6),
         )
         attributes = ds.attrs
         attributes["pixelResolution"] = {
@@ -79,6 +104,7 @@ def create_crop_variance_image(
             shape=organelle_variance.shape,
             chunks=32,
             write_empty_chunks=True,
+            compressor=GZip(level=6),
         )
         attributes = ds.attrs
         attributes["pixelResolution"] = {
@@ -131,6 +157,7 @@ def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
             shape=raw.shape,
             chunks=32,
             write_empty_chunks=True,
+            compressor=GZip(level=6),
         )
         attributes = ds.attrs
         attributes["pixelResolution"] = {
@@ -144,7 +171,7 @@ def create_variance_images(
     group: str,
     output_path: str,
     num_workers: int = 10,
-    crop: str = None,
+    crop: Union[list, str] = None,
 ) -> None:
     """Create variance images for data.
 
@@ -156,23 +183,30 @@ def create_variance_images(
         crop (str, optional): Specific crop to use. Defaults to None, meaning all crops will be used.
     """
     mi = MaskInformation(group, crop)
-    client = Client(n_workers=num_workers, threads_per_worker=1)
-    local_ip = socket.gethostbyname(socket.gethostname())
-    print(client.dashboard_link.replace("127.0.0.1", local_ip))
-
-    lazy_results = []
-    for row in mi.rows:
-        lazy_results.append(dask.delayed(cleanup_dir)(row, output_path))
-    zarr_roots = dask.compute(*lazy_results)
-
-    lazy_results = []
-    for idx, row in enumerate(mi.rows):
-        lazy_results.append(
-            dask.delayed(create_crop_variance_image)(input_path, row, zarr_roots[idx])
+    with Client(n_workers=num_workers, threads_per_worker=1) as client:
+        local_ip = socket.gethostbyname(socket.gethostname())
+        url = client.dashboard_link.replace("127.0.0.1", local_ip)
+        display(
+            HTML(
+                f"""<a href="{url}">Click here to montior variance image creation progress.</a>"""
+            ),
         )
-        lazy_results.append(dask.delayed(get_raw_image)(row, zarr_roots[idx]))
 
-    dask.compute(*lazy_results)
+        lazy_results = []
+        for row in mi.rows:
+            lazy_results.append(dask.delayed(cleanup_dir)(row, output_path))
+        zarr_roots = dask.compute(*lazy_results)
+
+        lazy_results = []
+        for idx, row in enumerate(mi.rows):
+            lazy_results.append(
+                dask.delayed(create_crop_variance_image)(
+                    input_path, row, zarr_roots[idx]
+                )
+            )
+            lazy_results.append(dask.delayed(get_raw_image)(row, zarr_roots[idx]))
+
+        dask.compute(*lazy_results)
 
 
 def get_neuroglancer_view_of_crop(
@@ -216,19 +250,14 @@ def get_neuroglancer_view_of_crop(
     dirs += variance_images
     viewer = neuroglancer.Viewer()
     with viewer.txn() as s:
-        s.layers["raw"] = neuroglancer.ImageLayer(
-            source=f"{path}/raw",
-        )
+        s.layers["raw"] = neuroglancer.ImageLayer(source=f"{path}/raw",)
         for d in dirs:
             if "variance" not in d:
-                s.layers[d] = neuroglancer.SegmentationLayer(
-                    source=f"{path}/{d}",
-                )
+                s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
             else:
-                s.layers[d] = neuroglancer.ImageLayer(
-                    source=f"{path}/{d}",
-                )
+                s.layers[d] = neuroglancer.ImageLayer(source=f"{path}/{d}",)
             s.layers[d].visible = False
 
-    print(neuroglancer.to_url(viewer.state).replace("https://", "http://"))
+    url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
+    display(HTML(f"""<a href="{url}">Click here to view data on neuroglancer.</a>"""),)
     neuroglancer.stop()

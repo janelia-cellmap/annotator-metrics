@@ -20,6 +20,8 @@ import pandas
 import collections
 import socket
 import shutil
+import warnings
+from IPython.core.display import display, HTML
 
 Result = collections.namedtuple(
     "Result",
@@ -82,15 +84,12 @@ def compare_two_images(
                 score = float("NaN")
             if score == np.nan_to_num(np.inf):
                 score = float("NaN")  # Necessary for plotting
-            scores.append(
-                [metric, score],
-            )
+            scores.append([metric, score],)
     return scores
 
 
 def calculate_metric_scores(
-    r: pandas.Series,
-    metrics_to_calculate: Union[str, list] = "all",
+    r: pandas.Series, metrics_to_calculate: Union[str, list] = "all",
 ) -> List[Result]:
     """Calculates the metric score(s) between two images and returns a list of the results.
 
@@ -102,11 +101,7 @@ def calculate_metric_scores(
         List[Result]: List of score results.
     """
     scores = compare_two_images(
-        r.gt_path,
-        r.test_path,
-        r.organelle_label,
-        r.resolution,
-        metrics_to_calculate,
+        r.gt_path, r.test_path, r.organelle_label, r.resolution, metrics_to_calculate,
     )
 
     output_formatted = []
@@ -130,9 +125,7 @@ def calculate_metric_scores(
 
 
 def create_dataframe(
-    group: str,
-    crop: Union[list, str],
-    input_base_path: str,
+    group: str, crop: Union[list, str], input_base_path: str,
 ) -> pandas.DataFrame:
     """Generates dataframe from mask information of images to compare.
 
@@ -259,17 +252,17 @@ def plot_figure(
     matplotlib.rcParams["axes.facecolor"] = "white"
     matplotlib.rcParams["savefig.facecolor"] = "white"
 
-    _, ax = plt.subplots(
-        1,
-        1,
-        figsize=(8, 6),
-    )
-    if score_range["sorting"] == 1:  # low to high
-        sort_order = np.argsort(np.nanmean(all_to_all, axis=0))
-        cmap = "rocket_r"
-    else:
-        cmap = "rocket"
-        sort_order = np.argsort(np.nanmean(all_to_all, axis=0))[::-1]
+    _, ax = plt.subplots(1, 1, figsize=(8, 6),)
+
+    # I expect to see RuntimeWarnings in this block for mean of empty slice
+    with warnings.catch_warnings():
+        warnings.filterwarnings(action="ignore", message="Mean of empty slice")
+        if score_range["sorting"] == 1:  # low to high
+            sort_order = np.argsort(np.nanmean(all_to_all, axis=0))
+            cmap = "rocket_r"
+        else:
+            cmap = "rocket"
+            sort_order = np.argsort(np.nanmean(all_to_all, axis=0))[::-1]
 
     all_to_all = all_to_all[:, sort_order]
     all_to_all = all_to_all[sort_order, :]
@@ -346,7 +339,7 @@ def plot_figure(
 
 def calculate_all_to_all(
     group: str,
-    input_base_path: str,
+    input_path: str,
     output_path: str,
     metrics_to_calculate: Union[list, str] = "all",
     num_workers: int = 10,
@@ -365,57 +358,67 @@ def calculate_all_to_all(
     Returns:
         Tuple[dict, dict]:  Dict containing all-to-all scores and dict containing corresponding information about scores.
     """
-    df = create_dataframe(group, crop, input_base_path)
+    df = create_dataframe(group, crop, input_path)
 
     # Setup dask client
     dask.config.set({"distributed.comm.timeouts.connect": 100})
-    client = Client(n_workers=num_workers, threads_per_worker=1)
-    local_ip = socket.gethostbyname(socket.gethostname())
-    print(client.dashboard_link.replace("127.0.0.1", local_ip))
 
-    lazy_results = []
-    for _, row in df.iterrows():
-        lazy_results.append(delayed(calculate_metric_scores)(row, metrics_to_calculate))
+    with Client(n_workers=num_workers, threads_per_worker=1) as client:
+        # client = Client(n_workers=num_workers, threads_per_worker=1)
+        local_ip = socket.gethostbyname(socket.gethostname())
+        url = client.dashboard_link.replace("127.0.0.1", local_ip)
 
-    results = dask.compute(*lazy_results)
-    results = [metric_row for result in results for metric_row in result]
-    all_to_all, score_ranges = compile_results_for_plotting(results)
-
-    output_path = "/groups/cellmap/cellmap/ackermand/annotation_and_analytics/"
-    lazy_results = []
-    for score_tuple, score_entry in all_to_all.items():
-        crop = score_tuple[0]
-        organelle_name = score_tuple[1]
-        metric_value = score_tuple[2]
-        metric_name = score_entry["metric_name"]
-        segmentation_types = score_entry["segmentation_types"]
-        current_all_to_all = score_entry["scores_matrix"]
-        score_range = score_ranges[(organelle_name, metric_value)]
-
-        # clean up plot dirs before creating images
-        for plot_type in ["plots_standard_color", "plots"]:
-            output_directory = (
-                f"{output_path}/{plot_type}/{group}/{crop}/{metric_value}"
-            )
-            if os.path.isdir(output_directory):
-                shutil.rmtree(output_directory)
-        output_directory = f"{output_path}/csvs/{group}/{crop}/{metric_value}"
-        if os.path.isdir(output_directory):
-            shutil.rmtree(output_directory)
-
-        lazy_results.append(
-            delayed(plot_figure)(
-                group,
-                crop,
-                organelle_name,
-                metric_value,
-                metric_name,
-                segmentation_types,
-                current_all_to_all,
-                score_range,
-                output_path=output_path,
-            )
+        display(
+            HTML(
+                f"""<a href="{url}">Click here to montior all-to-all calculation progress.</a>"""
+            ),
         )
 
-    dask.compute(*lazy_results)
+        lazy_results = []
+        for _, row in df.iterrows():
+            lazy_results.append(
+                delayed(calculate_metric_scores)(row, metrics_to_calculate)
+            )
+
+        results = dask.compute(*lazy_results)
+        results = [metric_row for result in results for metric_row in result]
+        all_to_all, score_ranges = compile_results_for_plotting(results)
+
+        lazy_results = []
+        for score_tuple, score_entry in all_to_all.items():
+            crop = score_tuple[0]
+            organelle_name = score_tuple[1]
+            metric_value = score_tuple[2]
+            metric_name = score_entry["metric_name"]
+            segmentation_types = score_entry["segmentation_types"]
+            current_all_to_all = score_entry["scores_matrix"]
+            score_range = score_ranges[(organelle_name, metric_value)]
+
+            # clean up plot dirs before creating images
+            for plot_type in ["plots_standard_color", "plots"]:
+                output_directory = (
+                    f"{output_path}/{plot_type}/{group}/{crop}/{metric_value}"
+                )
+                if os.path.isdir(output_directory):
+                    shutil.rmtree(output_directory)
+            output_directory = f"{output_path}/csvs/{group}/{crop}/{metric_value}"
+            if os.path.isdir(output_directory):
+                shutil.rmtree(output_directory)
+
+            lazy_results.append(
+                delayed(plot_figure)(
+                    group,
+                    crop,
+                    organelle_name,
+                    metric_value,
+                    metric_name,
+                    segmentation_types,
+                    current_all_to_all,
+                    score_range,
+                    output_path=output_path,
+                )
+            )
+
+        dask.compute(*lazy_results)
+
     return all_to_all, score_ranges

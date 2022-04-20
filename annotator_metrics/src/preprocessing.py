@@ -97,8 +97,7 @@ def get_resolution_and_offset_from_zarr(
 
 
 def get_predictions_and_refinements_from_row(
-    row: Row,
-    base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/",
+    row: Row, base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/",
 ) -> Dict[str, np.ndarray]:
     # need to figure out labeling
     cell_name = row.raw_path.split("/")[-1].split(".n5")[0]
@@ -238,7 +237,7 @@ def crop_annotations(
                         )
 
 
-def copy_data(group: Union[str, list], output_base_path: str, crop: str = None) -> None:
+def copy_data(group: Union[str, list], output_path: str, crop: str = None) -> None:
     """Copies data from all source locations to specified output location.
 
     Args:
@@ -250,7 +249,7 @@ def copy_data(group: Union[str, list], output_base_path: str, crop: str = None) 
     for row in mask_information.rows:
         crop = row.crop
         cropper = Cropper(row.mins, row.maxs)
-        current_output_path = f"{output_base_path}/{group}/{crop}/"
+        current_output_path = f"{output_path}/{group}/{crop}/"
         if os.path.exists(current_output_path):
             shutil.rmtree(current_output_path)
         os.makedirs(current_output_path)
