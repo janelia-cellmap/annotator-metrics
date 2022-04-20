@@ -10,7 +10,7 @@ setup(
     author_email="",
     description="",
     install_requires=[
+        "neuroglancer",
         "CNNectome @ git+https://github.com/saalfeldlab/CNNectome",
-        "neuroglancer @ git+https://github.com/google/neuroglancer",
     ],
 )
