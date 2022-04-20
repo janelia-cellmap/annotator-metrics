@@ -16,7 +16,9 @@ class Row:
         except Exception as e:
             self._is_valid = False
 
-    def __get_column(self, column: str) -> Union[int, str, np.ndarray, Tuple(np.ndarray, np.ndarray)]:
+    def __get_column(
+        self, column: str
+    ) -> Union[int, str, np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         c = self.df_row[column]
         if "x" in c:
             return np.array([int(c["x"]), int(c["y"]), int(c["z"])], dtype=int)
@@ -124,4 +126,3 @@ class MaskInformation:
             if re.search(r"\(\d\)", c) or re.search(r"\(\d\d\)", c):
                 self.all_organelle_names.append(c.split(" (")[0])
                 self.all_organelle_labels.append(int(c[c.find("(") + 1 : c.find(")")]))
-
