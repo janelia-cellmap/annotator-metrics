@@ -137,5 +137,3 @@ dask-worker-space/
 # temp working files
 my-metric-evaluations.ipynb
 
-# images for readme
-readme_images/
