@@ -1,5 +1,4 @@
 from typing import Union
-import warnings
 import h5py
 from numcodecs.gzip import GZip
 from annotator_metrics.util.doc_io import MaskInformation, Row
@@ -34,27 +33,6 @@ class Cropper:
             self.mins[0] : self.maxs[0],
         ]
         return im
-
-
-def zarr_create_dataset_suppress_warnings(
-    zarr_root: zarr.Group,
-    name: str,
-    data: np.ndarray,
-    shape: tuple,
-    chunks: int,
-    write_empty_chunks: bool,
-):
-
-    # I expect to see RuntimeWarnings in this block for mean of empty slice
-    with warnings.catch_warnings():
-        warnings.filterwarnings(action="ignore", message="Mean of empty slice")
-        zarr_root.create_dataset(
-            name=name,
-            data=data,
-            shape=shape,
-            chunks=chunks,
-            write_empty_chunks=write_empty_chunks,
-        )
 
 
 def create_crop_variance_image(
