@@ -1,4 +1,5 @@
 from typing import Union
+import warnings
 import h5py
 from numcodecs.gzip import GZip
 from annotator_metrics.util.doc_io import MaskInformation, Row
