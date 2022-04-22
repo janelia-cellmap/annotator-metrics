@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup,find_packages
 
 setup(
     name="annotator-metrics",
@@ -13,4 +13,5 @@ setup(
         "neuroglancer",
         "CNNectome @ git+https://github.com/saalfeldlab/CNNectome",
     ],
+    packages=find_packages()
 )
