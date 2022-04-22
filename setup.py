@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name="annotator-metrics",
     version="0.1.0",
-    packages=["annotator_metrics"],
+    packages=find_packages(),
     url="",
     license="",
     author="",
