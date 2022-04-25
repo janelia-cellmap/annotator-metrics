@@ -194,22 +194,23 @@ def crop_annotations(
             "textfile_templates",
         ]:
             group_dir = f"{annotator_dir}/{group}-labels"
-            for trial in os.listdir(group_dir):
-                trial_dir = f"{group_dir}/{trial}"
-                if os.path.isdir(trial_dir) and f"_{crop}_" in trial:
-                    if (
-                        trial[-2] == "_"
-                    ):  # HACK: for leaving out the number in the dir/file name
-                        trial = trial[:-1] + "1" + trial[-1:]
+            if os.path.exists(group_dir):
+                for trial in os.listdir(group_dir):
+                    trial_dir = f"{group_dir}/{trial}"
+                    if os.path.isdir(trial_dir) and f"_{crop}_" in trial:
+                        if (
+                            trial[-2] == "_"
+                        ):  # HACK: for leaving out the number in the dir/file name
+                            trial = trial[:-1] + "1" + trial[-1:]
 
-                    im_file = f"{trial_dir}/{trial}.tif"
-                    if os.path.isfile(im_file):
-                        im = tifffile.imread(f"{trial_dir}/{trial}.tif")
-                        output_name = trial.split("_")[-1][::-1]
-                        im_cropped = cropper.crop(im)
-                        tifffile.imwrite(
-                            f"{current_output_path}/{output_name}.tif", im_cropped
-                        )
+                        im_file = f"{trial_dir}/{trial}.tif"
+                        if os.path.isfile(im_file):
+                            im = tifffile.imread(f"{trial_dir}/{trial}.tif")
+                            output_name = trial.split("_")[-1][::-1]
+                            im_cropped = cropper.crop(im)
+                            tifffile.imwrite(
+                                f"{current_output_path}/{output_name}.tif", im_cropped
+                            )
 
     # cellmap annotators are in a different directory
     cellmap_annotator_dir = (
@@ -237,13 +238,19 @@ def crop_annotations(
                         )
 
 
-def copy_data(group: Union[str, list], output_path: str, crop: str = None) -> None:
+def copy_data(
+    group: Union[str, list],
+    output_path: str,
+    crop: str = None,
+    include_nonannotator_results=False,
+) -> None:
     """Copies data from all source locations to specified output location.
 
     Args:
         group (Union[str, list]): Group(s) to copy.
         output_base_path (str): Path to copy data to.
         crop (str, optional): Specific crop to copy. Defaults to None.
+        include_nonannotator_results (bool, optional): Whether or not to include predictions, refinements and ariadne. Defaults to False.
     """
     mask_information = MaskInformation(group, crop)
     for row in mask_information.rows:
@@ -257,11 +264,12 @@ def copy_data(group: Union[str, list], output_path: str, crop: str = None) -> No
         # do the croopping for annotators
         crop_annotations(group, crop, cropper, current_output_path)
 
-        # do predictions and refinements
-        full_im_dict = get_predictions_and_refinements_from_row(row)
-        for name, im in full_im_dict.items():
-            im_cropped = cropper.crop(im)
-            tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
+        if include_nonannotator_results:
+            # do predictions and refinements
+            full_im_dict = get_predictions_and_refinements_from_row(row)
+            for name, im in full_im_dict.items():
+                im_cropped = cropper.crop(im)
+                tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
 
         # do the cropping for ground truth
         with h5py.File(row.gt_path, "r") as f:
