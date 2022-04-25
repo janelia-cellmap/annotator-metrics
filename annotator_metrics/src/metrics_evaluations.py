@@ -153,21 +153,22 @@ def create_dataframe(
                     image_paths.append(p)
                     segmentation_types.append(original_segmentation_types[idx])
 
-            for gt_idx, gt_path in enumerate(image_paths):
-                for test_idx, test_path in enumerate(image_paths):
-                    df_row_values.append(
-                        [
-                            row.crop,
-                            organelle_name,
-                            organelle_label,
-                            segmentation_types,
-                            gt_idx,
-                            test_idx,
-                            gt_path,
-                            test_path,
-                            row.correct_resolution,
-                        ]
-                    )
+            if len(image_paths) > 1:
+                for gt_idx, gt_path in enumerate(image_paths):
+                    for test_idx, test_path in enumerate(image_paths):
+                        df_row_values.append(
+                            [
+                                row.crop,
+                                organelle_name,
+                                organelle_label,
+                                segmentation_types,
+                                gt_idx,
+                                test_idx,
+                                gt_path,
+                                test_path,
+                                row.correct_resolution,
+                            ]
+                        )
     df = pandas.DataFrame(
         df_row_values,
         columns=[
