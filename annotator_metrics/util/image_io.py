@@ -229,12 +229,31 @@ def get_neuroglancer_view_of_crop(
     dirs += variance_images
     viewer = neuroglancer.Viewer()
     with viewer.txn() as s:
-        s.layers["raw"] = neuroglancer.ImageLayer(source=f"{path}/raw",)
+        zarr_root = zarr.open(
+            f"{served_directory}/{path_relative_to_served_directory}", mode="r",
+        )
+
+        # raw
+        shaderControls = {
+            "normalized": {
+                "range": [np.amin(zarr_root["raw"]), np.amax(zarr_root["raw"])]
+            }
+        }
+        s.layers["raw"] = neuroglancer.ImageLayer(
+            source=f"{path}/raw", shaderControls=shaderControls
+        )
+
         for d in dirs:
             if "variance" not in d:
                 s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
             else:
-                s.layers[d] = neuroglancer.ImageLayer(source=f"{path}/{d}",)
+                shader = "#uicontrol invlerp normalized \nvoid main() {\n\temitRGB(vec3(normalized(),0, 0));\n}"
+                shaderControls = {
+                    "normalized": {"range": [np.amin(0), np.amax(zarr_root[d])]}
+                }
+                s.layers[d] = neuroglancer.ImageLayer(
+                    source=f"{path}/{d}", shader=shader, shaderControls=shaderControls
+                )
             s.layers[d].visible = False
 
     url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
