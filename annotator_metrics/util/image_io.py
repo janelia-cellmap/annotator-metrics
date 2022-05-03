@@ -188,74 +188,102 @@ def create_variance_images(
         dask.compute(*lazy_results)
 
 
-def get_neuroglancer_view_of_crop(
-    path_relative_to_served_directory: str,
+def save_neuroglancer_link(output_path: str, url: str):
+    with open(output_path, "w") as f:
+        f.write(
+            f'<meta http-equiv="refresh" content="0;url={url}">'
+            # f'<html><head><meta http-equiv="refresh" content="0; url={url}" /></head><body> </body></html>'
+        )
+
+
+def get_neuroglancer_view(
+    n5s_path: str,
+    group: str,
+    crop: Union[list, str] = None,
     served_directory: str = "/groups/cellmap/cellmap/",
     server_url: str = "http://10.150.100.248:8080",
 ) -> None:
     """Provides neuroglancer link to view of data including variance images if available.
 
     Args:
-        path_relative_to_served_directory (str): Path to data relative to the served directory.
+        n5s_path (str): Path to n5s directory.
+        group (str): Group to get view of
+        crop (Union[list, str], optional): Crop(s) to get views of. Defaults to None.
         served_directory (str, optional): Directory being served via http. Defaults to "/groups/cellmap/cellmap/".
         server_url (str, optional): Server url. Defaults to "http://10.150.100.248:8080".
     """
-    path = f"n5://{server_url}/{path_relative_to_served_directory}"
-    dir_list = os.listdir(f"{served_directory}/{path_relative_to_served_directory}")
-    dirs = [
-        d
-        for d in dir_list
-        if (
+    mi = MaskInformation(group, crop)
+    for row in mi.rows:
+        n5s_path_relative_to_served_directory = (
+            "/" + n5s_path.split(served_directory)[-1]
+        )
+        path = f"n5://{server_url}/{n5s_path_relative_to_served_directory}/{group}/{row.crop}.n5"
+        dir_list = os.listdir(f"{n5s_path}/{group}/{row.crop}.n5")
+        dirs = [
             d
-            not in [
-                "gt",
-                "raw",
-                "attributes.json",
-                "predictions",
-                "refinements",
-                "ariadne",
-            ]
-            and "variance" not in d
-        )
-    ]
-    dirs.sort()
-    dirs.insert(0, "gt")
-    for result_type in ["predictions", "refinements", "ariadne"]:
-        if result_type in dir_list:
-            dirs.append(result_type)
+            for d in dir_list
+            if (
+                d
+                not in [
+                    "gt",
+                    "raw",
+                    "attributes.json",
+                    "predictions",
+                    "refinements",
+                    "ariadne",
+                ]
+                and "variance" not in d
+            )
+        ]
+        dirs.sort()
+        dirs.insert(0, "gt")
+        for result_type in ["predictions", "refinements", "ariadne"]:
+            if result_type in dir_list:
+                dirs.append(result_type)
 
-    variance_images = [d for d in dir_list if "variance" in d]
-    variance_images.sort()
-    dirs += variance_images
-    viewer = neuroglancer.Viewer()
-    with viewer.txn() as s:
-        zarr_root = zarr.open(
-            f"{served_directory}/{path_relative_to_served_directory}", mode="r",
-        )
+        variance_images = [d for d in dir_list if "variance" in d]
+        variance_images.sort()
+        dirs += variance_images
+        viewer = neuroglancer.Viewer()
+        with viewer.txn() as s:
+            zarr_root = zarr.open(f"{n5s_path}/{group}/{row.crop}.n5", mode="r",)
 
-        # raw
-        shaderControls = {
-            "normalized": {
-                "range": [np.amin(zarr_root["raw"]), np.amax(zarr_root["raw"])]
-            }
-        }
-        s.layers["raw"] = neuroglancer.ImageLayer(
-            source=f"{path}/raw", shaderControls=shaderControls
-        )
-
-        for d in dirs:
-            if "variance" not in d:
-                s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
-            else:
-                shader = "#uicontrol invlerp normalized \nvoid main() {\n\temitRGB(vec3(normalized(),0, 0));\n}"
-                shaderControls = {
-                    "normalized": {"range": [np.amin(0), np.amax(zarr_root[d])]}
+            # raw
+            shaderControls = {
+                "normalized": {
+                    "range": [np.amin(zarr_root["raw"]), np.amax(zarr_root["raw"])]
                 }
-                s.layers[d] = neuroglancer.ImageLayer(
-                    source=f"{path}/{d}", shader=shader, shaderControls=shaderControls
-                )
-            s.layers[d].visible = False
+            }
+            s.layers["raw"] = neuroglancer.ImageLayer(
+                source=f"{path}/raw", shaderControls=shaderControls
+            )
 
-    url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
-    display(HTML(f"""<a href="{url}">Click here to view data on neuroglancer.</a>"""),)
-    neuroglancer.stop()
+            for d in dirs:
+                if "variance" not in d:
+                    s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
+                else:
+                    shader = "#uicontrol invlerp normalized \nvoid main() {\n\temitRGB(vec3(normalized(),0, 0));\n}"
+                    shaderControls = {
+                        "normalized": {"range": [np.amin(0), np.amax(zarr_root[d])]}
+                    }
+                    s.layers[d] = neuroglancer.ImageLayer(
+                        source=f"{path}/{d}",
+                        shader=shader,
+                        shaderControls=shaderControls,
+                    )
+                s.layers[d].visible = False
+
+        url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
+        display(
+            HTML(
+                f"""<a href="{url}">Click here to view data for {group} and crop {row.crop} on neuroglancer.</a>"""
+            ),
+        )
+        neuroglancer.stop()
+
+        base_path = n5s_path.rsplit("/n5s", 1)[0]
+        os.makedirs(f"{base_path}/neuroglancer_links/{group}", exist_ok=True)
+        save_neuroglancer_link(
+            f"{base_path}/neuroglancer_links/{group}/{row.crop}.html", url
+        )
+
