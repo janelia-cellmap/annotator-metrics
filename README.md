@@ -22,4 +22,4 @@ To install and use this repository:
 4. Activate the conda environment: `conda activate annotator-metrics`.
 5. Install the package: `pip install .`, or if you want to install it for development, `pip install -e .`.
 
-
+Note: If using a browser that implements CORS-RFC1918, which blocks public internet requests for internal device and server access, disable the following Chrome flag in order to resolve associated Neuroglancer errors: chrome://flags/#block-insecure-private-network-requests
