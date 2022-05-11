@@ -253,8 +253,6 @@ def plot_figure(
     matplotlib.rcParams["axes.facecolor"] = "white"
     matplotlib.rcParams["savefig.facecolor"] = "white"
 
-    _, ax = plt.subplots(1, 1, figsize=(8, 6),)
-
     # I expect to see RuntimeWarnings in this block for mean of empty slice
     with warnings.catch_warnings():
         warnings.filterwarnings(action="ignore", message="Mean of empty slice")
@@ -291,6 +289,7 @@ def plot_figure(
                     )
 
     for color_range in ["standard", "combined"]:
+        _, ax = plt.subplots(1, 1, figsize=(8, 6),)
         if color_range == "standard":
             mask = ~np.eye(all_to_all.shape[0], dtype=bool)
             score_range_min = np.nanmin(all_to_all[mask])
