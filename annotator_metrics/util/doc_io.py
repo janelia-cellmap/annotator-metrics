@@ -1,4 +1,5 @@
 from typing import Tuple, Union
+import h5py
 import requests
 import pandas
 from io import StringIO
@@ -23,14 +24,20 @@ class Row:
         if "x" in c:
             return np.array([int(c["x"]), int(c["y"]), int(c["z"])], dtype=int)
         elif "x min" in c:
-            return (
-                np.array(
-                    [int(c["x min"]), int(c["y min"]), int(c["z min"])], dtype=int
-                ),
-                np.array(
-                    [int(c["x max"]), int(c["y max"]), int(c["z max"])], dtype=int
-                ),
-            )
+            try:
+                output = (
+                    np.array(
+                        [int(c["x min"]), int(c["y min"]), int(c["z min"])], dtype=int
+                    ),
+                    np.array(
+                        [int(c["x max"]), int(c["y max"]), int(c["z max"])], dtype=int
+                    ),
+                )
+            except:
+                with h5py.File(self.gt_path, "r") as f:
+                    im = f["volumes"]["labels"]["gt"][:]
+                    output = (np.array([0, 0, 0]), np.array(np.shape(im)))
+            return output
         else:
             # Way to treat it when  contains eg unnamed 0_level_0
             val = c[c.keys()[0]]
@@ -42,11 +49,10 @@ class Row:
 
     def __get_useful_columns(self):
         group_crop = self.__get_column("group")
-        self.group = group_crop.split("_")[0]
-        self.crop = group_crop.split("_")[1]
+        self.group = group_crop.rsplit("_", 1)[0]
+        self.crop = group_crop.rsplit("_", 1)[1]
         self.raw_path = self.__get_column("raw data")
         self.gt_path = self.__get_column("crop pathway")
-        self.original_coordinates = self.__get_column("original coordinates")
         self.converted_4nm_coordinates = self.__get_column("converted 4nm coordinates")
         self.original_crop_size = self.__get_column("original crop size (pixels)")
         self.raw_resolution = self.__get_column("raw resolution (nm)")
