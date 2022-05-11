@@ -28,6 +28,18 @@ labels_dict_by_group = {
         "lyso": 13,
         "lyso-mem": 12,
     },
+    "full_crop": {
+        "mito": 4,
+        "mito-mem": 3,
+        "er": 17,
+        "er-mem": 16,
+        "pm": 2,
+        "endo": 11,
+        "endo-mem": 10,
+        "vesicle": 9,
+        "vesicle-mem": 8,
+        "mt_out": 30,
+    },
 }
 # if lumen, remove it put it first
 
@@ -112,35 +124,24 @@ def get_predictions_and_refinements_from_row(
                     f"{base_path}/{organelle_name}_{result_type}"
                 )
 
-                # HACK: special case for crops 8 and 10 which were pulled separately
-                if (
-                    cell_name == "jrc_mus-liver"
-                    and row.crop in ["08", "10"]
-                    and row.group == "group1"
-                ):
+                # HACK: special case for mus liver crops outside of main region
+                if cell_name == "jrc_mus-liver":
                     result_path = follow_symlinks(
-                        f"{base_path}/crop{row.crop}.n5/{organelle_name}_{result_type}"
+                        f"{base_path}/{row.group}_{row.crop}.n5/{organelle_name}_{result_type}"
                     )
 
-                if os.path.isdir(result_path) and not (
-                    row.group == "group3"
-                    and (
-                        row.crop == "03" or row.crop == "06"
-                    )  # HACK for another ariadne crop outside the valid range
-                ):
+                if os.path.isdir(result_path):
                     n5, dataset = result_path.rsplit(".n5/", 1)
                     zarr_file = zarr.open(f"{n5}.n5", mode="r")
                     resolution, offset = get_resolution_and_offset_from_zarr(
                         zarr_file[dataset]
                     )
 
-                    # HACK: for group 1 crop 9, and group3 crop 3, because ariadne was not labeled with offset
-                    if (
-                        cell_name == "jrc_mus-liver"
-                        and ((row.group == "group1" and row.crop == "09"))
-                        and result_type == "ariadne"
-                    ):
-                        offset = np.array([30984, 30912, 15728], dtype=int)
+                    if result_type == "ariadne":
+                        if row.group == "group1" and row.crop == "09":
+                            offset = np.array([30984, 30912, 15728], dtype=int)
+                        else:
+                            break
 
                     crop_start = row.converted_4nm_coordinates - offset // 4
                     crop_end = crop_start + (
