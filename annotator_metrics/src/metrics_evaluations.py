@@ -1,10 +1,13 @@
+from contextlib import ExitStack
 import os
 from typing import List, Tuple, Union
 import dask
 import matplotlib
 import numpy as np
 import tifffile
-from ..util.doc_io import MaskInformation
+
+from ..util.url_util import display_url
+from ..util.doc_util import MaskInformation
 from matplotlib import pyplot as plt
 import seaborn
 from CNNectome.validation.organelles.segmentation_metrics import (
@@ -21,7 +24,11 @@ import collections
 import socket
 import shutil
 import warnings
-from IPython.core.display import display, HTML
+import yaml
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 Result = collections.namedtuple(
     "Result",
@@ -34,7 +41,7 @@ def compare_two_images(
     test_path: str,
     organelle_label: Union[int, list],
     resolution: Union[int, float],
-    metrics_to_calculate: Union[str, list] = None,
+    metrics_to_calculate: Union[str, list] = "all",
 ) -> List[list]:
     """
     Compare two images according to the specified metric(s).
@@ -44,7 +51,7 @@ def compare_two_images(
         test_path (str): Path to test image
         organelle_label (Union[int, list]): Organelle label(s) to compare
         resolution (Union[int, float]): Voxel resolution
-        metrics_to_calculate (Union[str, list], optional):  Metric(s) used for image comparisons. If None or "all" provided, will compare images across all metrics. Defaults to None.
+        metrics_to_calculate (Union[str, list], optional):  Metric(s) used for image comparisons. If None or "all" provided, will compare images across all metrics. Defaults to "all".
 
     Returns:
         List[list]: List of lists of metrics and associated scores
@@ -291,12 +298,17 @@ def plot_figure(
     for color_range in ["standard", "combined"]:
         _, ax = plt.subplots(1, 1, figsize=(8, 6),)
         if color_range == "standard":
-            mask = ~np.eye(all_to_all.shape[0], dtype=bool)
-            score_range_min = np.nanmin(all_to_all[mask])
-            score_range_max = np.nanmax(all_to_all[mask])
-            output_directory = (
-                f"{output_path}/plots_standard_color/{group}/{crop}/{metric_value}"
-            )
+            # I expect to see RuntimeWarnings in this block for all-nan slice
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    action="ignore", message="All-NaN slice encountere"
+                )
+                mask = ~np.eye(all_to_all.shape[0], dtype=bool)
+                score_range_min = np.nanmin(all_to_all[mask])
+                score_range_max = np.nanmax(all_to_all[mask])
+                output_directory = (
+                    f"{output_path}/plots_standard_color/{group}/{crop}/{metric_value}"
+                )
         else:
             score_range_min = score_range["min"]
             score_range_max = score_range["max"]
@@ -342,8 +354,8 @@ def calculate_all_to_all(
     input_path: str,
     output_path: str,
     metrics_to_calculate: Union[list, str] = "all",
-    num_workers: int = 10,
-    crop: Union[list, str] = None,
+    num_workers: int = None,
+    crop: Union[list, str] = "all",
 ) -> Tuple[dict, dict]:
     """Calculates all-to-all matrices for specified metric(s).
 
@@ -352,8 +364,8 @@ def calculate_all_to_all(
         input_base_path (str): Path to data.
         output_path (str): Path to write out data.
         metrics_to_calculate (Union[list, str], optional): Metric(s) to calculate scores for. Defaults to "all".
-        num_workers (int, optional): Number of dask workers. Defaults to 10.
-        crop (Union[list, str], optional): Crop(s) to calculate scores for. Defaults to None.
+        num_workers (int, optional): Number of dask workers. Defaults to None.
+        crop (Union[list, str], optional): Crop(s) to calculate scores for. Defaults to "all".
 
     Returns:
         Tuple[dict, dict]:  Dict containing all-to-all scores and dict containing corresponding information about scores.
@@ -361,18 +373,14 @@ def calculate_all_to_all(
     df = create_dataframe(group, crop, input_path)
 
     # Setup dask client
-    dask.config.set({"distributed.comm.timeouts.connect": 100})
-
-    with Client(n_workers=num_workers, threads_per_worker=1) as client:
-        # client = Client(n_workers=num_workers, threads_per_worker=1)
-        local_ip = socket.gethostbyname(socket.gethostname())
-        url = client.dashboard_link.replace("127.0.0.1", local_ip)
-
-        display(
-            HTML(
-                f"""<a href="{url}">Click here to montior all-to-all calculation progress.</a>"""
-            ),
-        )
+    with ExitStack() as stack:
+        if num_workers:
+            dask.config.set({"distributed.comm.timeouts.connect": 100})
+            stack.enter_context(Client(n_workers=num_workers, threads_per_worker=1))
+            client = Client.current()
+            local_ip = socket.gethostbyname(socket.gethostname())
+            url = client.dashboard_link.replace("127.0.0.1", local_ip)
+            display_url(url, "Click here to montior all-to-all calculation progress")
 
         lazy_results = []
         for _, row in df.iterrows():
@@ -422,3 +430,96 @@ def calculate_all_to_all(
         dask.compute(*lazy_results)
 
     return all_to_all, score_ranges
+
+
+def main():
+    from annotator_metrics.src.preprocessing import copy_data
+    from annotator_metrics.util.image_util import (
+        create_variance_images,
+        get_neuroglancer_view,
+    )
+    import annotator_metrics.util.io_util as io_util
+    import annotator_metrics.util.dask_util as dask_util
+
+    # Get information regarding run
+    submission_directory = os.getcwd()
+    args = io_util.parser_params()
+    num_workers = args.num_workers
+    required_settings, optional_settings = io_util.read_run_config(args.config_path)
+
+    # Setup config parameters
+    output_path = required_settings["output_path"]
+    group = required_settings["group"]
+    crop = optional_settings["crop"]
+    metrics_to_calculate = optional_settings["metrics_to_calculate"]
+
+    group = [group.split(",") if "," in group else group][0]
+    crop = [crop.split(",") if "," in crop else crop][0]
+    metrics_to_calculate = [
+        metrics_to_calculate.split(",")
+        if "," in metrics_to_calculate
+        else metrics_to_calculate
+    ][0]
+
+    # Change execution directory
+    execution_directory = dask_util.setup_execution_directory(args.config_path, logger)
+    logpath = f"{execution_directory}/output.log"
+
+    # Start processing
+    with io_util.tee_streams(logpath):
+
+        try:
+            os.chdir(execution_directory)
+
+            # Copy data to output directory
+            with io_util.Timing_Messager(f"Copying data for {group}.", logger):
+                copy_data(
+                    group=group,
+                    output_path=f"{output_path}/data/",
+                    crop=crop,
+                    include_nonannotator_results=True,
+                )
+
+            # Start dask
+            # Since we set up the dask worker before entering, we don't need num_workers
+            with dask_util.start_dask(num_workers, "all-to-all", logger):
+                with io_util.Timing_Messager(
+                    f"Calculating all-to-all for {group}", logger
+                ):
+                    calculate_all_to_all(
+                        group=group,
+                        input_path=f"{output_path}/data/",
+                        output_path=f"{output_path}/results/",
+                        num_workers=None,
+                        metrics_to_calculate=metrics_to_calculate,
+                    )
+
+            # Restart dask to clean up cluster before variance image creation
+            with dask_util.start_dask(num_workers, "variance", logger):
+                # Create multiresolution meshes
+                with io_util.Timing_Messager(
+                    f"Creating variance images for {group}", logger
+                ):
+                    create_variance_images(
+                        input_path=f"{output_path}/data/",
+                        group=group,
+                        crop=crop,
+                        output_path=f"{output_path}/results/n5s",
+                        num_workers=None,
+                    )
+
+            # Get a neuroglancer view of the crop. The http-served directory is /groups/cellmap/cellmap
+            with io_util.Timing_Messager(
+                f"Generating neuroglancer image for {group}.", logger
+            ):
+                get_neuroglancer_view(
+                    n5s_path=f"{output_path}/results/n5s", group=group, crop=crop
+                )
+        finally:
+            os.chdir(submission_directory)
+
+
+if __name__ == "__main__":
+    """Run main function
+    """
+    main()

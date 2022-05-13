@@ -1,7 +1,8 @@
+from contextlib import ExitStack
 from typing import Union
 import h5py
 from numcodecs.gzip import GZip
-from annotator_metrics.util.doc_io import MaskInformation, Row
+from annotator_metrics.util.doc_util import MaskInformation, Row
 import tifffile
 import os
 import shutil
@@ -11,7 +12,7 @@ import socket
 from dask.distributed import Client
 import dask
 import neuroglancer
-from IPython.core.display import display, HTML
+from annotator_metrics.util.url_util import display_url
 
 
 class Cropper:
@@ -149,8 +150,8 @@ def create_variance_images(
     input_path: str,
     group: str,
     output_path: str,
-    num_workers: int = 10,
-    crop: Union[list, str] = None,
+    num_workers: int = None,
+    crop: Union[list, str] = "all",
 ) -> None:
     """Create variance images for data.
 
@@ -158,18 +159,19 @@ def create_variance_images(
         input_path (str): Path to image data
         group (str): Group to use.
         output_path (str): Path to save images.
-        num_workers (int, optional): Number of dask workers. Defaults to 10.
-        crop (str, optional): Specific crop to use. Defaults to None, meaning all crops will be used.
+        num_workers (int, optional): Number of dask workers. Defaults to None.
+        crop (str, optional): Specific crop to use. Defaults to "all".
     """
     mi = MaskInformation(group, crop)
-    with Client(n_workers=num_workers, threads_per_worker=1) as client:
-        local_ip = socket.gethostbyname(socket.gethostname())
-        url = client.dashboard_link.replace("127.0.0.1", local_ip)
-        display(
-            HTML(
-                f"""<a href="{url}">Click here to montior variance image creation progress.</a>"""
-            ),
-        )
+
+    # Setup dask client
+    with ExitStack() as stack:
+        if num_workers:
+            stack.enter_context(Client(n_workers=num_workers, threads_per_worker=1))
+            client = Client.current()
+            local_ip = socket.gethostbyname(socket.gethostname())
+            url = client.dashboard_link.replace("127.0.0.1", local_ip)
+            display_url(url, "Click here to montior variance image creation progress")
 
         lazy_results = []
         for row in mi.rows:
@@ -199,7 +201,7 @@ def save_neuroglancer_link(output_path: str, url: str):
 def get_neuroglancer_view(
     n5s_path: str,
     group: str,
-    crop: Union[list, str] = None,
+    crop: Union[list, str] = "all",
     served_directory: str = "/groups/cellmap/cellmap/",
     server_url: str = "http://10.150.100.248:8080",
 ) -> None:
@@ -208,7 +210,7 @@ def get_neuroglancer_view(
     Args:
         n5s_path (str): Path to n5s directory.
         group (str): Group to get view of
-        crop (Union[list, str], optional): Crop(s) to get views of. Defaults to None.
+        crop (Union[list, str], optional): Crop(s) to get views of. Defaults to "all".
         served_directory (str, optional): Directory being served via http. Defaults to "/groups/cellmap/cellmap/".
         server_url (str, optional): Server url. Defaults to "http://10.150.100.248:8080".
     """
@@ -274,10 +276,9 @@ def get_neuroglancer_view(
                 s.layers[d].visible = False
 
         url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
-        display(
-            HTML(
-                f"""<a href="{url}">Click here to view data for {group} and crop {row.crop} on neuroglancer.</a>"""
-            ),
+        display_url(
+            url,
+            f"Click here to view data for {group} and crop {row.crop} on neuroglancer",
         )
         neuroglancer.stop()
 

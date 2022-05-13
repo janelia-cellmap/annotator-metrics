@@ -3,8 +3,8 @@ from typing import Dict, Tuple, Union
 import numpy as np
 import h5py
 import zarr
-from ..util.doc_io import MaskInformation, Row
-from ..util.image_io import Cropper
+from ..util.doc_util import MaskInformation, Row
+from ..util.image_util import Cropper
 import tifffile
 import glob
 import shutil
@@ -242,7 +242,7 @@ def crop_annotations(
 def copy_data(
     group: Union[str, list],
     output_path: str,
-    crop: str = None,
+    crop: str = "all",
     include_nonannotator_results=False,
 ) -> None:
     """Copies data from all source locations to specified output location.
@@ -250,7 +250,7 @@ def copy_data(
     Args:
         group (Union[str, list]): Group(s) to copy.
         output_base_path (str): Path to copy data to.
-        crop (str, optional): Specific crop to copy. Defaults to None.
+        crop (str, optional): Specific crop to copy. Defaults to "all".
         include_nonannotator_results (bool, optional): Whether or not to include predictions, refinements and ariadne. Defaults to False.
     """
     mask_information = MaskInformation(group, crop)

@@ -91,7 +91,7 @@ class Row:
 
 
 class MaskInformation:
-    def __init__(self, group: str = None, crop: Union[list, str] = None):
+    def __init__(self, group: str = None, crop: Union[list, str] = "all"):
         self.__get_df_from_doc()
         self.__get_organelle_info()
 
@@ -99,7 +99,7 @@ class MaskInformation:
             filtered_rows = []
             for row in self.rows:
                 if row.group in group:
-                    if crop:
+                    if crop != "all":
                         if row.crop in crop:
                             filtered_rows.append(row)
                     else:

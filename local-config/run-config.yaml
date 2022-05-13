@@ -1,0 +1,7 @@
+required_settings:
+        group: group1                                                                                  # Comma separated group(s) to process
+        output_path: /groups/cellmap/cellmap/ackermand/annotation_and_analytics/include_predictions/   # Path to write out results
+
+optional_settings:
+        crop: "all"                 # Comma separated crop(s) within group to process; default is "all"
+        metrics_to_calculate: "all" # Comma separated list of metric(s) to calculate; default is "all"
