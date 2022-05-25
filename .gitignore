@@ -137,3 +137,6 @@ dask-worker-space/
 # temp working files
 my-metric-evaluations.ipynb
 *-config-20*
+
+# monitoring jobs
+monitor.*
