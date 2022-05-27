@@ -148,7 +148,7 @@ def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
 
 def create_variance_images(
     input_path: str,
-    group: str,
+    group: Union[list, str],
     output_path: str,
     num_workers: int = None,
     crop: Union[list, str] = "all",
@@ -157,12 +157,12 @@ def create_variance_images(
 
     Args:
         input_path (str): Path to image data
-        group (str): Group to use.
+        group (Union[list,str]): Group to use.
         output_path (str): Path to save images.
         num_workers (int, optional): Number of dask workers. Defaults to None.
         crop (str, optional): Specific crop to use. Defaults to "all".
     """
-    mi = MaskInformation(group, crop)
+    mi = MaskInformation(group, crop, input_path)
 
     # Setup dask client
     with ExitStack() as stack:
@@ -200,7 +200,7 @@ def save_neuroglancer_link(output_path: str, url: str):
 
 def get_neuroglancer_view(
     n5s_path: str,
-    group: str,
+    group: Union[list, str],
     crop: Union[list, str] = "all",
     served_directory: str = "/groups/cellmap/cellmap/",
     server_url: str = "http://10.150.100.248:8080",
@@ -209,18 +209,19 @@ def get_neuroglancer_view(
 
     Args:
         n5s_path (str): Path to n5s directory.
-        group (str): Group to get view of
+        group (Union[list, str]): Group to get view of
         crop (Union[list, str], optional): Crop(s) to get views of. Defaults to "all".
         served_directory (str, optional): Directory being served via http. Defaults to "/groups/cellmap/cellmap/".
         server_url (str, optional): Server url. Defaults to "http://10.150.100.248:8080".
     """
-    mi = MaskInformation(group, crop)
+
+    n5s_path_relative_to_served_directory = "/" + n5s_path.split(served_directory)[-1]
+    mi = MaskInformation(
+        group, crop, f"{served_directory}/{n5s_path_relative_to_served_directory}"
+    )
     for row in mi.rows:
-        n5s_path_relative_to_served_directory = (
-            "/" + n5s_path.split(served_directory)[-1]
-        )
-        path = f"n5://{server_url}/{n5s_path_relative_to_served_directory}/{group}/{row.crop}.n5"
-        dir_list = os.listdir(f"{n5s_path}/{group}/{row.crop}.n5")
+        path = f"n5://{server_url}/{n5s_path_relative_to_served_directory}/{row.group}/{row.crop}.n5"
+        dir_list = os.listdir(f"{n5s_path}/{row.group}/{row.crop}.n5")
         dirs = [
             d
             for d in dir_list
@@ -248,7 +249,7 @@ def get_neuroglancer_view(
         dirs += variance_images
         viewer = neuroglancer.Viewer()
         with viewer.txn() as s:
-            zarr_root = zarr.open(f"{n5s_path}/{group}/{row.crop}.n5", mode="r",)
+            zarr_root = zarr.open(f"{n5s_path}/{row.group}/{row.crop}.n5", mode="r",)
 
             # raw
             shaderControls = {
@@ -278,13 +279,13 @@ def get_neuroglancer_view(
         url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
         display_url(
             url,
-            f"Click here to view data for {group} and crop {row.crop} on neuroglancer",
+            f"Click here to view data for {row.group} and crop {row.crop} on neuroglancer",
         )
         neuroglancer.stop()
 
         base_path = n5s_path.rsplit("/n5s", 1)[0]
-        os.makedirs(f"{base_path}/neuroglancer_links/{group}", exist_ok=True)
+        os.makedirs(f"{base_path}/neuroglancer_links/{row.group}", exist_ok=True)
         save_neuroglancer_link(
-            f"{base_path}/neuroglancer_links/{group}/{row.crop}.html", url
+            f"{base_path}/neuroglancer_links/{row.group}/{row.crop}.html", url
         )
 
