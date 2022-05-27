@@ -9,39 +9,40 @@ import tifffile
 import glob
 import shutil
 
-labels_dict_by_group = {
-    "group1": {"mito": 4, "mito-mem": 3, "mito-dna": 5},
-    "group2": {
-        "er": 17,
-        "er-mem": 16,
-        "eres": 19,
-        "eres-mem": 18,
-        "golgi": 7,
-        "golgi-mem": 6,
-    },
-    "group3": {
-        "pm": 2,
-        "endo": 11,
-        "endo-mem": 10,
-        "vesicle": 9,
-        "vesicle-mem": 8,
-        "lyso": 13,
-        "lyso-mem": 12,
-    },
-    "full_crop": {
-        "mito": 4,
-        "mito-mem": 3,
-        "er": 17,
-        "er-mem": 16,
-        "pm": 2,
-        "endo": 11,
-        "endo-mem": 10,
-        "vesicle": 9,
-        "vesicle-mem": 8,
-        "mt_out": 30,
-    },
+labels_dict = {
+    "mito": 4,
+    "mito-mem": 3,
+    "mito-dna": 5,
+    "er": 17,
+    "er-mem": 16,
+    "eres": 19,
+    "eres-mem": 18,
+    "golgi": 7,
+    "golgi-mem": 6,
+    "pm": 2,
+    "endo": 11,
+    "endo-mem": 10,
+    "vesicle": 9,
+    "vesicle-mem": 8,
+    "lyso": 13,
+    "lyso-mem": 12,
+    "mt_in": 36,
+    "mt_out": 30,
+    "ne_lum": 21,
+    "ne_mem": 20,
+    "nuclear_pore_out": 22,
+    "nuclear_pore_in": 23,
+    "hchrom": 24,
+    "nhchrom": 25,
+    "echrom": 26,
+    "nechrom": 27,
+    "nucleoplasm": 28,
+    "nucleolus": 29,
+    "cent": 31,
+    "cent-sdapp": 32,
+    "subdistal_app": 33,
 }
-# if lumen, remove it put it first
+# if lumen, put it first
 
 
 def update_path(path: str) -> str:
@@ -118,7 +119,7 @@ def get_predictions_and_refinements_from_row(
     full_image_dict = {}
     for result_type in ["pred", "seg", "ariadne"]:
         has_segmentation = False
-        for organelle_name, organelle_label in labels_dict_by_group[row.group].items():
+        for organelle_name, organelle_label in labels_dict.items():
             if organelle_label in row.organelle_info.values():
                 result_path = follow_symlinks(
                     f"{base_path}/{organelle_name}_{result_type}"
@@ -206,12 +207,16 @@ def crop_annotations(
 
                         im_file = f"{trial_dir}/{trial}.tif"
                         if os.path.isfile(im_file):
-                            im = tifffile.imread(f"{trial_dir}/{trial}.tif")
-                            output_name = trial.split("_")[-1][::-1]
-                            im_cropped = cropper.crop(im)
-                            tifffile.imwrite(
-                                f"{current_output_path}/{output_name}.tif", im_cropped
-                            )
+                            try:
+                                im = tifffile.imread(im_file)
+                                output_name = trial.split("_")[-1][::-1]
+                                im_cropped = cropper.crop(im)
+                                tifffile.imwrite(
+                                    f"{current_output_path}/{output_name}.tif",
+                                    im_cropped,
+                                )
+                            except:
+                                pass
 
     # cellmap annotators are in a different directory
     cellmap_annotator_dir = (
@@ -242,7 +247,7 @@ def crop_annotations(
 def copy_data(
     group: Union[str, list],
     output_path: str,
-    crop: str = "all",
+    crop: Union[str, list] = "all",
     include_nonannotator_results=False,
 ) -> None:
     """Copies data from all source locations to specified output location.
@@ -250,11 +255,12 @@ def copy_data(
     Args:
         group (Union[str, list]): Group(s) to copy.
         output_base_path (str): Path to copy data to.
-        crop (str, optional): Specific crop to copy. Defaults to "all".
+        crop (Union[str, list], optional): Specific crop to copy. Defaults to "all".
         include_nonannotator_results (bool, optional): Whether or not to include predictions, refinements and ariadne. Defaults to False.
     """
     mask_information = MaskInformation(group, crop)
     for row in mask_information.rows:
+        group = row.group
         crop = row.crop
         cropper = Cropper(row.mins, row.maxs)
         current_output_path = f"{output_path}/{group}/{crop}/"
