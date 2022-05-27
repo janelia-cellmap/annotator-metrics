@@ -85,6 +85,14 @@ def read_run_config(config_path):
         if "metrics_to_calculate" not in optional_settings:
             optional_settings["metrics_to_calculate"] = "all"
 
+        required_settings["group"] = required_settings["group"].split(",")
+        if "," in optional_settings["crop"]:
+            optional_settings["crop"] = optional_settings["crop"].split(",")
+        if "," in optional_settings["metrics_to_calculate"]:
+            optional_settings["metrics_to_calculate"] = optional_settings[
+                "metrics_to_calculate"
+            ].split(",")
+
         return required_settings, optional_settings
 
 

@@ -1,3 +1,4 @@
+import os
 from typing import Tuple, Union
 import h5py
 import requests
@@ -91,10 +92,16 @@ class Row:
 
 
 class MaskInformation:
-    def __init__(self, group: str = None, crop: Union[list, str] = "all"):
+    def __init__(
+        self,
+        group: str = None,
+        crop: Union[list, str] = "all",
+        base_path_to_check: str = None,
+    ):
         self.__get_df_from_doc()
         self.__get_organelle_info()
 
+        # filter by group and crop
         if group:
             filtered_rows = []
             for row in self.rows:
@@ -104,6 +111,15 @@ class MaskInformation:
                             filtered_rows.append(row)
                     else:
                         filtered_rows.append(row)
+            self.rows = filtered_rows
+
+        # filter to check if path exists
+        if base_path_to_check:
+            filtered_rows = []
+            for row in self.rows:
+                path = f"{base_path_to_check}/{row.group}/{row.crop}"
+                if os.path.exists(f"{path}") or os.path.exists(f"{path}.n5"):
+                    filtered_rows.append(row)
             self.rows = filtered_rows
 
     def __get_df_from_doc(self):
