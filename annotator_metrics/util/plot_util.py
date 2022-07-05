@@ -64,7 +64,7 @@ def plot_all_to_all(
     with open(f"{output_directory}/{organelle_name}.csv", "w") as f:
         f.write(f"annotator 1,annotator 2,{metric_name}\n")
         for i in range(len(segmentation_types)):
-            for j in range(i):
+            for j in range(len(segmentation_types)):
                 if (
                     segmentation_types[i] not in ignored
                     and segmentation_types[j] not in ignored
@@ -129,7 +129,8 @@ def plot_all_to_all(
 
 def plot_boxplots(all_to_all_info):
     import pandas as pd
-    df = pd.DataFrame(columns = ['Score Type', 'Organelle', 'Annotator', 'Pair', 'Score'])
+
+    df = pd.DataFrame(columns=["Score Type", "Organelle", "Annotator", "Pair", "Score"])
     dict_for_dataframe = {}
     i = 0
 
@@ -138,16 +139,27 @@ def plot_boxplots(all_to_all_info):
         score_type = key[2]
         scores_matrix = info["scores_matrix"]
         segmentation_types = info["segmentation_types"]
-        for idx_one,segmentation_type_one in enumerate(segmentation_types):
-            for idx_two,segmentation_type_two in enumerate(segmentation_types):
+        for idx_one, segmentation_type_one in enumerate(segmentation_types):
+            for idx_two, segmentation_type_two in enumerate(segmentation_types):
                 if idx_one != idx_two:
                     score = scores_matrix[idx_one][idx_two]
-                    dict_for_dataframe[i] = {"Score Type": score_type, "Organelle": organelle, "Annotator": segmentation_type_one, "Pair": f"{segmentation_type_one}_{segmentation_type_two}", "Score": score}
-                    dict_for_dataframe[i+1] = {"Score Type": score_type, "Organelle": organelle, "Annotator": segmentation_type_two, "Pair": f"{segmentation_type_one}_{segmentation_type_two}", "Score": score}
+                    dict_for_dataframe[i] = {
+                        "Score Type": score_type,
+                        "Organelle": organelle,
+                        "Annotator": segmentation_type_one,
+                        "Pair": f"{segmentation_type_one}_{segmentation_type_two}",
+                        "Score": score,
+                    }
+                    dict_for_dataframe[i + 1] = {
+                        "Score Type": score_type,
+                        "Organelle": organelle,
+                        "Annotator": segmentation_type_two,
+                        "Pair": f"{segmentation_type_one}_{segmentation_type_two}",
+                        "Score": score,
+                    }
                     i += 2
 
     df = pd.DataFrame.from_dict(dict_for_dataframe, "index")
-
 
     import plotly.express as px
     import plotly.graph_objects as go
