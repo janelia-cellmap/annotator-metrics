@@ -189,6 +189,13 @@ def crop_annotations(
     group: str, crop: str, cropper: Cropper, current_output_path: str
 ) -> None:
     input_base_path = "/groups/cellmap/cellmap/annotation_and_analytics/training"
+
+    upscale_factor = 1
+    if group == "group5" and crop in ["04", "05", "06"]:
+        # HACK: mus liver for these crops were annotated by everyone at 8nm, not just the original gt
+        # so need to upsample to get it at correct
+        upscale_factor = 2
+
     for annotator_name in os.listdir(input_base_path):
         annotator_dir = f"{input_base_path}/{annotator_name}"
         if os.path.isdir(annotator_dir) and annotator_name not in [
@@ -210,7 +217,9 @@ def crop_annotations(
                             try:
                                 im = tifffile.imread(im_file)
                                 output_name = trial.split("_")[-1][::-1]
-                                im_cropped = cropper.crop(im)
+                                im_cropped = cropper.crop(
+                                    im, upscale_factor=upscale_factor
+                                )
                                 tifffile.imwrite(
                                     f"{current_output_path}/{output_name}.tif",
                                     im_cropped,
@@ -229,7 +238,7 @@ def crop_annotations(
                 # then don't need to check subdirectories
                 output_name = annotator_tif.split(".tif")[0][-2::][::-1]
                 im = tifffile.imread(annotator_tif)
-                im_cropped = cropper.crop(im)
+                im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
                 tifffile.imwrite(f"{current_output_path}/{output_name}.tif", im_cropped)
         else:
             for trial in os.listdir(cellmap_annotator_dir):
@@ -238,7 +247,7 @@ def crop_annotations(
                     im_file = f"{cellmap_annotator_dir}/{trial}/{trial}.tif"
                     if os.path.isfile(im_file):
                         im = tifffile.imread(im_file)
-                        im_cropped = cropper.crop(im)
+                        im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
                         tifffile.imwrite(
                             f"{current_output_path}/{output_name}.tif", im_cropped
                         )
