@@ -77,6 +77,7 @@ def compare_two_images(
         not test_image_binary.any(),
         metric_params,
         resolution=[resolution] * 3,
+        mask=None
     )
 
     if not metrics_to_calculate or metrics_to_calculate == "all":
