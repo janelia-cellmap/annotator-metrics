@@ -81,6 +81,7 @@ class Row:
             "lyso": [12, 13],
             "mt": [30, 36],
             "nucleus": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+            "ne": [20, 21],
         }
         all_values = set(self.organelle_info.values())
         for organelle, labels in combined_labels.items():
