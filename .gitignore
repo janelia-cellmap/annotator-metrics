@@ -135,7 +135,7 @@ dmypy.json
 dask-worker-space/
 
 # temp working files
-my-metric-evaluations.ipynb
+my-*.ipynb
 *-config-20*
 
 # monitoring jobs
