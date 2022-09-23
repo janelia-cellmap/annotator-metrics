@@ -7,6 +7,7 @@ import tifffile
 
 from annotator_metrics.util.io_util import print_with_datetime
 from annotator_metrics.util.plot_util import plot_all_to_all
+from annotator_metrics.src.preprocessing import follow_symlinks
 
 from ..util.url_util import display_url
 from ..util.doc_util import MaskInformation
@@ -77,7 +78,7 @@ def compare_two_images(
         not test_image_binary.any(),
         metric_params,
         resolution=[resolution] * 3,
-        mask=None
+        mask=None,
     )
 
     if not metrics_to_calculate or metrics_to_calculate == "all":
@@ -92,12 +93,15 @@ def compare_two_images(
                 score = float("NaN")
             if score == np.nan_to_num(np.inf):
                 score = float("NaN")  # Necessary for plotting
-            scores.append([metric, score],)
+            scores.append(
+                [metric, score],
+            )
     return scores
 
 
 def calculate_metric_scores(
-    r: pandas.Series, metrics_to_calculate: Union[str, list] = "all",
+    r: pandas.Series,
+    metrics_to_calculate: Union[str, list] = "all",
 ) -> List[Result]:
     """Calculates the metric score(s) between two images and returns a list of the results.
 
@@ -109,7 +113,11 @@ def calculate_metric_scores(
         List[Result]: List of score results.
     """
     scores = compare_two_images(
-        r.gt_path, r.test_path, r.organelle_label, r.resolution, metrics_to_calculate,
+        r.gt_path,
+        r.test_path,
+        r.organelle_label,
+        r.resolution,
+        metrics_to_calculate,
     )
 
     output_formatted = []
@@ -133,7 +141,9 @@ def calculate_metric_scores(
 
 
 def create_dataframe(
-    group: Union[list, str], crop: Union[list, str], input_base_path: str,
+    group: Union[list, str],
+    crop: Union[list, str],
+    input_base_path: str,
 ) -> pandas.DataFrame:
     """Generates dataframe from mask information of images to compare.
 
@@ -146,6 +156,7 @@ def create_dataframe(
         pandas.DataFrame: Data frame with rows containing information about images to compare.
     """
     mi = MaskInformation(group, crop, input_base_path)
+    pred_seg_path = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered"
     df_row_values = []
     for row in mi.rows:
         all_segmentations = os.listdir(f"{input_base_path}/{row.group}/{row.crop}")
@@ -157,7 +168,40 @@ def create_dataframe(
             image_paths = []
             segmentation_types = []
             for idx, p in enumerate(original_image_paths):
-                if not ("ariadne" in p and organelle_name != "mito"):
+                use_image = True
+                if "ariadne" in p and organelle_name != "mito":
+                    use_image = False
+                if original_segmentation_types[idx] in ["predictions", "refinements"]:
+                    if original_segmentation_types[idx] == "predictions":
+                        annotation_type = "pred"
+                    else:
+                        annotation_type = "seg"
+                    # for things with lumen, we use the base class and label everything else, lumen being what is left behind
+                    # for things with in, we use the base class and label out, in being what is left behind
+                    is_lumen = False
+                    is_in = False
+                    if "-lum" in organelle_name:
+                        adjusted_name = organelle_name.split("-lum")[0]
+                        is_lumen = True
+                    if "-in" in organelle_name:
+                        adjusted_name = organelle_name.split("in")[0]
+                        is_in = True
+
+                    path = f"{pred_seg_path}/{row.cell_name}/{row.cell_name}.n5/{adjusted_name}"
+                    if not os.path.exists(follow_symlinks(f"{path}_{annotation_type}")):
+                        use_image = False
+                    elif is_lumen and not os.path.exists(
+                        follow_symlinks(f"{path}-mem_{annotation_type}")
+                    ):
+                        # can only calculate lumen if we have a mem
+                        use_image = False
+                    elif is_in and not os.path.exists(
+                        follow_symlinks(f"{path}-out_{annotation_type}")
+                    ):
+                        # can only calculate inner part if we have an outer part
+                        use_image = False
+
+                if use_image:
                     image_paths.append(p)
                     segmentation_types.append(original_segmentation_types[idx])
 
@@ -414,6 +458,5 @@ def main():
 
 
 if __name__ == "__main__":
-    """Run main function
-    """
+    """Run main function"""
     main()

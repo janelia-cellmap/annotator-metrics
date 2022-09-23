@@ -53,7 +53,7 @@ def create_crop_variance_image(
             name=image_name.split(".")[0],
             data=current_image.astype(np.uint8),
             shape=current_image.shape,
-            chunks=32,
+            chunks=64,
             write_empty_chunks=True,
             compressor=GZip(level=6),
         )
@@ -82,7 +82,7 @@ def create_crop_variance_image(
             name=organelle_name + "_variance",
             data=organelle_variance,
             shape=organelle_variance.shape,
-            chunks=32,
+            chunks=64,
             write_empty_chunks=True,
             compressor=GZip(level=6),
         )
@@ -135,7 +135,7 @@ def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
             name="raw",
             data=raw[:],
             shape=raw.shape,
-            chunks=32,
+            chunks=64,
             write_empty_chunks=True,
             compressor=GZip(level=6),
         )
@@ -203,7 +203,7 @@ def get_neuroglancer_view(
     group: Union[list, str],
     crop: Union[list, str] = "all",
     served_directory: str = "/groups/cellmap/cellmap/",
-    server_url: str = "http://10.150.100.248:8080",
+    server_url: str = "https://cellmap-vm1.int.janelia.org/dm11/",
 ) -> None:
     """Provides neuroglancer link to view of data including variance images if available.
 
@@ -212,7 +212,7 @@ def get_neuroglancer_view(
         group (Union[list, str]): Group to get view of
         crop (Union[list, str], optional): Crop(s) to get views of. Defaults to "all".
         served_directory (str, optional): Directory being served via http. Defaults to "/groups/cellmap/cellmap/".
-        server_url (str, optional): Server url. Defaults to "http://10.150.100.248:8080".
+        server_url (str, optional): Server url. Defaults to "https://cellmap-vm1.int.janelia.org".
     """
 
     n5s_path_relative_to_served_directory = "/" + n5s_path.split(served_directory)[-1]
@@ -239,7 +239,8 @@ def get_neuroglancer_view(
             )
         ]
         dirs.sort()
-        dirs.insert(0, "gt")
+        if "gt" in dir_list:
+            dirs.insert(0, "gt")
         for result_type in ["predictions", "refinements", "ariadne"]:
             if result_type in dir_list:
                 dirs.append(result_type)
@@ -276,7 +277,7 @@ def get_neuroglancer_view(
                     )
                 s.layers[d].visible = False
 
-        url = neuroglancer.to_url(viewer.state).replace("https://", "http://")
+        url = neuroglancer.to_url(viewer.state)
         display_url(
             url,
             f"Click here to view data for {row.group} and crop {row.crop} on neuroglancer",

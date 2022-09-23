@@ -11,6 +11,6 @@ setup(
     description="",
     install_requires=[
         "neuroglancer",
-        "CNNectome @ git+https://github.com/saalfeldlab/CNNectome",
+        "CNNectome @ git+https://github.com/saalfeldlab/CNNectome@feat/boundary-distance-metric",
     ],
 )

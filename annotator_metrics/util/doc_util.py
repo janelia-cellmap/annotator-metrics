@@ -53,6 +53,7 @@ class Row:
         self.group = group_crop.rsplit("_", 1)[0]
         self.crop = group_crop.rsplit("_", 1)[1]
         self.raw_path = self.__get_column("raw data")
+        self.cell_name = self.raw_path.split("/")[-1].split(".n5")[0]
         self.gt_path = self.__get_column("crop pathway")
         self.converted_4nm_coordinates = self.__get_column("converted 4nm coordinates")
         self.original_crop_size = self.__get_column("original crop size (pixels)")
@@ -65,13 +66,32 @@ class Row:
 
     def __get_organelle_info(self):
         self.organelle_info = {}
+        # self.organelle_labels_with_predictions = []
         for h, c in self.df_row.iteritems():
             if c == "X":
                 organelle_name = h[0].split("(")[0].split(" ")[0]
                 organelle_label = int(h[0].split("(")[1].split(")")[0])
                 self.organelle_info[organelle_name] = organelle_label
 
+                # for the case of manually annotated lumen, we label the corresponding whole-organelle predictions/refinements with
+                # that value, and overlay eg. membranes on top of that
+                # organelle_name = organelle_name.split("-lum")[0]
+                # df_row = prediction_paths_df.loc[
+                #     (prediction_paths_df["Group"] == f"{self.group}_{self.crop}")
+                #     & (prediction_paths_df["Dataset"] == self.dataset)
+                #     & (prediction_paths_df["Class"] == organelle_name)
+                # ]
+                # if not df_row.empty and os.path.exists(
+                #     df_row["Prediction Pathway"].values[0]
+                # ):
+                # then there are predictions for this specific organelle
+
+                #    self.organelle_labels_with_predictions.append(organelle_label)
+
+        # lumen are only specifically labeled by annotators, otherwise they are the remnants of organelle and mem predictions
+        # so a predict
         combined_labels = {
+            # mem, lumen, other
             "mito": [3, 4, 5],
             "er": [16, 17, 18, 19],
             "eres": [18, 19],
@@ -79,14 +99,31 @@ class Row:
             "vesicle": [8, 9],
             "endo": [10, 11],
             "lyso": [12, 13],
-            "mt": [30, 36],
+            "mt": [36, 30],
+            "np": [23, 22],
             "nucleus": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
             "ne": [20, 21],
         }
+
         all_values = set(self.organelle_info.values())
         for organelle, labels in combined_labels.items():
             if set(all_values).intersection(set(labels)):
                 self.organelle_info[organelle] = labels
+
+        # for organelle in self.organelle_info.keys():
+        #     # these are all the annotated ones
+        #     df_row = prediction_paths_df.loc[
+        #         (prediction_paths_df["Group"] == f"{self.group}_{self.crop}")
+        #         & (prediction_paths_df["Dataset"] == self.dataset)
+        #         & (prediction_paths_df["Class"] == organelle_name)
+        #     ]
+        #     if not df_row.empty and os.path.exists(
+        #         df_row["Prediction Pathway"].values[0]
+        #     ):
+        #         # then there are predictions for this specific organelle
+        #         self.organelle_labels_with_predictions.append(
+        #             labels_dict[organelle_name]
+        #         )
 
     def is_valid(self):
         return self._is_valid
@@ -141,7 +178,11 @@ class MaskInformation:
         mask_information = mask_information.replace(firstline, updated_firstline)
 
         self.df = pandas.read_csv(StringIO(("").join(mask_information)), header=[0, 1])
-        self.rows = [Row(r) for _, r in self.df.iterrows() if Row(r).is_valid()]
+        self.rows = []
+        for _, r in self.df.iterrows():
+            row = Row(r)
+            if row.is_valid():
+                self.rows.append(row)
 
     def __get_organelle_info(self):
         self.all_organelle_names = []
@@ -151,3 +192,21 @@ class MaskInformation:
             if re.search(r"\(\d\)", c) or re.search(r"\(\d\d\)", c):
                 self.all_organelle_names.append(c.split(" (")[0])
                 self.all_organelle_labels.append(int(c[c.find("(") + 1 : c.find(")")]))
+
+
+def get_prediction_paths_df():
+    received = requests.get(
+        "https://docs.google.com/spreadsheets/d/1GID90G3kUOM9qhuvlNc6Sqlf45ORMHDIaHBivYNzx3E/export?format=csv&id=1GID90G3kUOM9qhuvlNc6Sqlf45ORMHDIaHBivYNzx3E&gid=733638280"
+    )
+
+    prediction_information = received.text
+
+    prediction_paths_df = pandas.read_csv(StringIO(("").join(prediction_information)))
+    for _, row in prediction_paths_df.iterrows():
+        if type(row.Group) != str:
+            row.Group = previous_group
+        if type(row.Dataset) != str:
+            row.Dataset = previous_dataset
+        previous_group = row.Group
+        previous_dataset = row.Dataset
+    return prediction_paths_df

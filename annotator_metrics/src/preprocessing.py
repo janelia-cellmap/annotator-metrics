@@ -2,14 +2,19 @@ import os
 from typing import Dict, Tuple, Union
 import numpy as np
 import h5py
+import pandas
 import zarr
-from ..util.doc_util import MaskInformation, Row
+from ..util.doc_util import (
+    MaskInformation,
+    Row,
+    get_prediction_paths_df,
+)
 from ..util.image_util import Cropper
 import tifffile
 import glob
 import shutil
 
-labels_dict = {
+predictions_labels_dict = {
     "mito": 4,
     "mito-mem": 3,
     "mito-dna": 5,
@@ -26,12 +31,12 @@ labels_dict = {
     "vesicle-mem": 8,
     "lyso": 13,
     "lyso-mem": 12,
-    "mt_in": 36,
-    "mt_out": 30,
-    "ne_lum": 21,
-    "ne_mem": 20,
-    "nuclear_pore_out": 22,
-    "nuclear_pore_in": 23,
+    "mt": 36,
+    "mt-out": 30,
+    "ne": 21,
+    "ne-mem": 20,
+    "np": 23,
+    "np-out": 22,
     "hchrom": 24,
     "nhchrom": 25,
     "echrom": 26,
@@ -46,9 +51,31 @@ labels_dict = {
 
 
 def update_path(path: str) -> str:
+
     path = os.path.abspath(path)
+
     path = path.replace("nrs/cosem/", "nrs/cellmap/")
     path = path.replace("groups/cosem/cosem/", "groups/cellmap/cellmap/")
+
+    if (
+        os.path.islink(path)
+        and "/nrs/cellmap/cosem/training/v0003.2" in path
+        and not os.path.exists(path)
+    ):
+        path = path.replace(
+            "/nrs/cellmap/cosem/training/v0003.2",
+            "/nearline/cellmap/cosem/training/v0003.2/FROM_NRS/",
+        )
+        return path
+
+    if not os.path.islink(path) and not os.path.exists(
+        path
+    ):  # then it is a broken symlink, or a path that doesnt exist
+        if "groups/cellmap/cellmap" in path:
+            # maybe moved to nrs or nearline
+            path = path.replace("/groups/cellmap/", "/nrs/")
+        if not os.path.islink(path) and not os.path.exists(path):
+            path = path.replace("/nrs/", "/nearline/")
     return path
 
 
@@ -110,28 +137,45 @@ def get_resolution_and_offset_from_zarr(
 
 
 def get_predictions_and_refinements_from_row(
-    row: Row, base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/",
+    row: Row,
+    prediction_paths_df: pandas.DataFrame,
+    base_path: str = "/groups/cellmap/cellmap/ackermand/forDavis/renumbered/",
 ) -> Dict[str, np.ndarray]:
     # need to figure out labeling
-    cell_name = row.raw_path.split("/")[-1].split(".n5")[0]
-    base_path = f"{base_path}/{cell_name}/{cell_name}.n5/"
+    cell_name = row.cell_name
 
     full_image_dict = {}
     for result_type in ["pred", "seg", "ariadne"]:
         has_segmentation = False
-        for organelle_name, organelle_label in labels_dict.items():
+        for organelle_name, organelle_label in predictions_labels_dict.items():
             if organelle_label in row.organelle_info.values():
+                result_path = None
+                if result_type == "pred":
+                    # is this necessary for predictions? currently not used
+                    df_row = prediction_paths_df.loc[
+                        (prediction_paths_df["Group"] == f"{row.group}_{row.crop}")
+                        & (prediction_paths_df["Dataset"] == cell_name)
+                        & (prediction_paths_df["Class"] == organelle_name)
+                    ]
+                    if not df_row.empty:
+                        result_path = df_row["Prediction Pathway"].values[0]
+                else:
+                    result_path = follow_symlinks(
+                        f"{base_path}/{organelle_name}_{result_type}"
+                    )
                 result_path = follow_symlinks(
                     f"{base_path}/{organelle_name}_{result_type}"
                 )
-
+                # result_path = follow_symlinks(
+                #     f"{base_path}/{organelle_name}_{result_type}"
+                # )
                 # HACK: special case for mus liver crops outside of main region
-                if cell_name == "jrc_mus-liver":
-                    result_path = follow_symlinks(
-                        f"{base_path}/{row.group}_{row.crop}.n5/{organelle_name}_{result_type}"
-                    )
+                # if cell_name == "jrc_mus-liver":
+                #     result_path = follow_symlinks(
+                #         f"{base_path}/{row.group}_{row.crop}.n5/{organelle_name}_{result_type}"
+                #     )
 
-                if os.path.isdir(result_path):
+                if result_path and os.path.isdir(result_path):
                     n5, dataset = result_path.rsplit(".n5/", 1)
                     zarr_file = zarr.open(f"{n5}.n5", mode="r")
                     resolution, offset = get_resolution_and_offset_from_zarr(
@@ -149,21 +193,37 @@ def get_predictions_and_refinements_from_row(
                         row.original_crop_size // (4 // row.correct_resolution)
                     )
 
-                    rescale_factor_for_annotation = resolution // row.correct_resolution
+                    rescale_factor_for_annotation = 4 // row.correct_resolution
+
+                    if not has_segmentation:
+                        combined_image = np.zeros(
+                            (crop_end - crop_start)[::-1], dtype=np.uint8
+                        )
+                        has_segmentation = True
 
                     # need to account for ariadne, with resolution 8 nm. so the crop will be half the size of the 4 nm one
                     scale = int(resolution) // 4
-                    if not has_segmentation:
-                        combined_image = np.zeros(
-                            (crop_end - crop_start)[::-1] // scale, dtype=np.uint8
-                        )
-                    has_segmentation = True
+                    if scale != 1:
+                        crop_start_padded = crop_start // scale
+                        crop_end_padded = -1 * (-crop_end // scale)
 
-                    im = zarr_file[dataset][
-                        (crop_start[2] // scale) : (crop_end[2] // scale),
-                        (crop_start[1] // scale) : (crop_end[1] // scale),
-                        (crop_start[0] // scale) : (crop_end[0] // scale),
-                    ]
+                        im = zarr_file[dataset][
+                            crop_start_padded[2] : crop_end_padded[2],
+                            crop_start_padded[1] : crop_end_padded[1],
+                            crop_start_padded[0] : crop_end_padded[0],
+                        ]
+
+                        adjusted_start = crop_start - crop_start_padded * scale
+                        adjusted_end = adjusted_start + (crop_end - crop_start)
+                        cropper = Cropper(adjusted_start, adjusted_end)
+                        im = cropper.crop(im, scale)
+                    else:
+                        im = zarr_file[dataset][
+                            crop_start[2] : crop_end[2],
+                            crop_start[1] : crop_end[1],
+                            crop_start[0] : crop_end[0],
+                        ]
+
                     combined_image[
                         im >= (127 if result_type == "pred" else 1)
                     ] = organelle_label
@@ -268,6 +328,8 @@ def copy_data(
         include_nonannotator_results (bool, optional): Whether or not to include predictions, refinements and ariadne. Defaults to False.
     """
     mask_information = MaskInformation(group, crop)
+    prediction_paths_df = get_prediction_paths_df()
+
     for row in mask_information.rows:
         group = row.group
         crop = row.crop
@@ -282,7 +344,9 @@ def copy_data(
 
         if include_nonannotator_results:
             # do predictions and refinements
-            full_im_dict = get_predictions_and_refinements_from_row(row)
+            full_im_dict = get_predictions_and_refinements_from_row(
+                row, prediction_paths_df
+            )
             for name, im in full_im_dict.items():
                 im_cropped = cropper.crop(im)
                 tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
@@ -293,6 +357,24 @@ def copy_data(
             im_cropped = cropper.crop(
                 im, upscale_factor=row.gt_resolution // row.correct_resolution
             )
-            tifffile.imwrite(
-                f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
-            )
+            im_cropped = im_cropped.astype(np.uint8)
+
+            # only save it if it is not copy of existing one
+            gt_is_unique = True
+            for annotation_name in os.listdir(current_output_path):
+                if annotation_name not in [
+                    "predictions.tif",
+                    "ariadne.tif",
+                    "refinements.tif",
+                ]:
+                    annotation_im = tifffile.imread(
+                        f"{current_output_path}/{annotation_name}"
+                    )
+                    if np.array_equal(annotation_im, im_cropped):
+                        gt_is_unique = False
+                        break
+
+            if gt_is_unique:
+                tifffile.imwrite(
+                    f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
+                )
