@@ -103,47 +103,80 @@ def cleanup_dir(row: Row, output_path: str) -> zarr.Group:
 
 
 def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
-    with h5py.File(row.gt_path) as f:
-        raw = f["volumes"]["raw"]
-        gt = f["volumes"]["labels"]["gt"]
-        # seems like raw and gt resolutions are inaccurate for crops 8-10? so still need to use "correct resolution" in attributes
-        raw_resolution = raw.attrs["resolution"][0]
-        # gt_resolution = gt.attrs["resolution"][0]
+    raw_split = row.raw_path.split(".n5")
+    raw_n5_path = raw_split[0] + ".n5"
+    dataset = raw_split[1]
+    if os.path.exists(raw_n5_path + "/" + dataset + "/volumes/raw"):
+        dataset += "volumes/raw"
+    if os.path.exists(row.raw_path + "/" + dataset + "/s0"):
+        dataset += "/s0"
 
-        offset_nm = (
-            np.array(gt.attrs["offset"]) + 1
-        )  # TODO: Is this right? Add one because otherwise is 1023...
+    zarr_file = zarr.open(raw_n5_path, mode="r")
 
-        # in correct resolution voxels
-        # scaling_correction = row.gt_resolution // row.correct_resolution
-        offset = offset_nm // (raw_resolution // 2)
-        # (gt_resolution * scaling_correction)
+    crop_start = row.original_coordinates
+    crop_end = row.original_coordinates + row.original_crop_size
+    raw = zarr_file[dataset][
+        crop_start[2] : crop_end[2],
+        crop_start[1] : crop_end[1],
+        crop_start[0] : crop_end[0],
+    ]
 
-        # gt_resolution = gt.attrs["offset"][0]
-        # raw_resolution = raw.attrs["resolution"][0]
+    # # crop based on 4 nm coordinates
+    # # raw resolution is always equal or lower res than correct gt
+    # crop_start = row.converted_4nm_coordinates
+    # crop_end = crop_start + (row.original_crop_size // (4 // row.correct_resolution))
 
-        # training_gt_offset_nm = np.asarray([gt_offset_nm[d]+row.mins[d]*gt_resolution for d in range(3)])
-        training_gt_mins = [int(row.mins[d] + offset[d]) for d in range(3)]
-        training_gt_maxs = [int(row.maxs[d] + offset[d]) for d in range(3)]
+    # scale = row.raw_resolution[0] / 4
+    # if scale > 1:
+    #     crop_start_padded = crop_start // scale
+    #     crop_end_padded = -1 * (-crop_end // scale)
 
-        cropper = Cropper(training_gt_mins, training_gt_maxs)
-        # training_gt_dimensions_nm = np.asarray([row.maxs[d]*gt_resolution for d in range(3)])
-        # raw_offset = training_gt_offset_nm//raw_resolution
+    #     raw = zarr_file[dataset][
+    #         crop_start_padded[2] : crop_end_padded[2],
+    #         crop_start_padded[1] : crop_end_padded[1],
+    #         crop_start_padded[0] : crop_end_padded[0],
+    #     ]
 
-        raw = cropper.crop(raw[:], upscale_factor=2)
-        ds = zarr_root.create_dataset(
-            name="raw",
-            data=raw[:],
-            shape=raw.shape,
-            chunks=64,
-            write_empty_chunks=True,
-            compressor=GZip(level=6),
+    #     adjusted_start = crop_start - crop_start_padded * scale
+    #     adjusted_end = adjusted_start + (crop_end - crop_start)
+    #     cropper = Cropper(adjusted_start, adjusted_end)
+    #     raw = cropper.crop(raw, scale)
+    # elif scale <= 1:
+    #     if scale < 1:
+    #         # assume if raw_resolution < 4, then it is correct resolution
+    #         crop_start = np.ndarray.astype(crop_start / scale, np.int)
+    #         crop_end = np.ndarray.astype(crop_end / scale, np.int)
+
+    #     raw = zarr_file[dataset][
+    #         crop_start[2] : crop_end[2],
+    #         crop_start[1] : crop_end[1],
+    #         crop_start[0] : crop_end[0],
+    #     ]
+
+    # rescale to correct resolution
+    rescale_factor = row.raw_resolution[0] // row.correct_resolution
+    if rescale_factor > 1:
+        raw = (
+            raw.repeat(rescale_factor, axis=0)
+            .repeat(rescale_factor, axis=1)
+            .repeat(rescale_factor, axis=2)
         )
-        attributes = ds.attrs
-        attributes["pixelResolution"] = {
-            "dimensions": 3 * [row.correct_resolution],
-            "unit": "nm",
-        }
+    cropper = Cropper(row.mins, row.maxs)
+    raw = cropper.crop(raw)
+
+    ds = zarr_root.create_dataset(
+        name="raw",
+        data=raw[:],
+        shape=raw.shape,
+        chunks=64,
+        write_empty_chunks=True,
+        compressor=GZip(level=6),
+    )
+    attributes = ds.attrs
+    attributes["pixelResolution"] = {
+        "dimensions": 3 * [row.correct_resolution],
+        "unit": "nm",
+    }
 
 
 def create_variance_images(

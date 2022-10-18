@@ -45,7 +45,9 @@ class Row:
             if not isinstance(val, str):
                 return int(val)
             elif "Z:" in val:
-                return val.replace("\\", "/").replace("Z:", "/groups/cellmap/cellmap")
+                return val.replace("\\", "/").replace("Z:", "/nrs/cellmap/")
+            elif "Y:" in val:
+                return val.replace("\\", "/").replace("Y:", "/nrs/cellmap/")
             return val
 
     def __get_useful_columns(self):
@@ -62,6 +64,7 @@ class Row:
         self.correct_resolution = self.__get_column(
             "correct annotation resolution (nm)"
         )
+        self.original_coordinates = self.__get_column("original coordinates")
         self.mins, self.maxs = self.__get_column("coordinates within crop")
 
     def __get_organelle_info(self):
