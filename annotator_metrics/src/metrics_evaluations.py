@@ -180,11 +180,13 @@ def create_dataframe(
                     # for things with in, we use the base class and label out, in being what is left behind
                     is_lumen = False
                     is_in = False
-                    if "-lum" in organelle_name:
-                        adjusted_name = organelle_name.split("-lum")[0]
+
+                    adjusted_name = organelle_name
+                    if "-lum" in adjusted_name:
+                        adjusted_name = adjusted_name.split("-lum")[0]
                         is_lumen = True
-                    if "-in" in organelle_name:
-                        adjusted_name = organelle_name.split("in")[0]
+                    if "-in" in adjusted_name:
+                        adjusted_name = adjusted_name.split("-in")[0]
                         is_in = True
 
                     path = f"{pred_seg_path}/{row.cell_name}/{row.cell_name}.n5/{adjusted_name}"
