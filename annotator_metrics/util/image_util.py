@@ -250,7 +250,10 @@ def get_neuroglancer_view(
         dirs += variance_images
         viewer = neuroglancer.Viewer()
         with viewer.txn() as s:
-            zarr_root = zarr.open(f"{n5s_path}/{row.group}/{row.crop}.n5", mode="r",)
+            zarr_root = zarr.open(
+                f"{n5s_path}/{row.group}/{row.crop}.n5",
+                mode="r",
+            )
 
             # raw
             shaderControls = {
@@ -264,7 +267,9 @@ def get_neuroglancer_view(
 
             for d in dirs:
                 if "variance" not in d:
-                    s.layers[d] = neuroglancer.SegmentationLayer(source=f"{path}/{d}",)
+                    s.layers[d] = neuroglancer.SegmentationLayer(
+                        source=f"{path}/{d}",
+                    )
                 else:
                     shader = "#uicontrol invlerp normalized \nvoid main() {\n\temitRGB(vec3(normalized(),0, 0));\n}"
                     shaderControls = {
@@ -289,4 +294,3 @@ def get_neuroglancer_view(
         save_neuroglancer_link(
             f"{base_path}/neuroglancer_links/{row.group}/{row.crop}.html", url
         )
-

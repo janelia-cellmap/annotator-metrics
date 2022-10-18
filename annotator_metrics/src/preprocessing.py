@@ -33,6 +33,7 @@ predictions_labels_dict = {
     "lyso-mem": 12,
     "mt": 36,
     "mt-out": 30,
+    "nucleus": 28,
     "ne": 21,
     "ne-mem": 20,
     "np": 23,
@@ -161,10 +162,10 @@ def get_predictions_and_refinements_from_row(
                         result_path = df_row["Prediction Pathway"].values[0]
                 else:
                     result_path = follow_symlinks(
-                        f"{base_path}/{organelle_name}_{result_type}"
+                        f"{base_path}/{row.cell_name}/{row.cell_name}.n5/{organelle_name}_{result_type}"
                     )
                 result_path = follow_symlinks(
-                    f"{base_path}/{organelle_name}_{result_type}"
+                    f"{base_path}/{row.cell_name}/{row.cell_name}.n5/{organelle_name}_{result_type}"
                 )
                 # result_path = follow_symlinks(
                 #     f"{base_path}/{organelle_name}_{result_type}"
@@ -248,7 +249,10 @@ def get_predictions_and_refinements_from_row(
 def crop_annotations(
     group: str, crop: str, cropper: Cropper, current_output_path: str
 ) -> None:
-    input_base_path = "/groups/cellmap/cellmap/annotation_and_analytics/training"
+    input_base_paths = [
+        "/groups/cellmap/cellmap/annotation_and_analytics/training",
+        "/groups/cellmap/cellmap/annotation_and_analytics/supplemental_variability_crops/variability_crops_personal",
+    ]
 
     upscale_factor = 1
     if group == "group5" and crop in ["04", "05", "06"]:
@@ -256,27 +260,38 @@ def crop_annotations(
         # so need to upsample to get it at correct
         upscale_factor = 2
 
-    for annotator_name in os.listdir(input_base_path):
-        annotator_dir = f"{input_base_path}/{annotator_name}"
-        if os.path.isdir(annotator_dir) and annotator_name not in [
-            "conversion_scripts",
-            "textfile_templates",
-        ]:
-            group_dir = f"{annotator_dir}/{group}-labels"
-            if os.path.exists(group_dir):
-                for trial in os.listdir(group_dir):
-                    trial_dir = f"{group_dir}/{trial}"
-                    if os.path.isdir(trial_dir) and f"_{crop}_" in trial:
-                        if (
-                            trial[-2] == "_"
-                        ):  # HACK: for leaving out the number in the dir/file name
-                            trial = trial[:-1] + "1" + trial[-1:]
+    for idx, input_base_path in enumerate(input_base_paths):
+        for annotator_name in os.listdir(input_base_path):
+            annotator_dir = f"{input_base_path}/{annotator_name}"
+            if os.path.isdir(annotator_dir) and annotator_name not in [
+                "conversion_scripts",
+                "textfile_templates",
+            ]:
+                group_dir = f"{annotator_dir}/{group}-labels"
+                if idx == 1:
+                    group_dir = f"{annotator_dir}/{group}"
 
-                        im_file = f"{trial_dir}/{trial}.tif"
+                if os.path.exists(group_dir):
+                    im_files = []
+                    if idx == 0:
+                        for trial in os.listdir(group_dir):
+                            trial_dir = f"{group_dir}/{trial}"
+                            if os.path.isdir(trial_dir) and (f"_{crop}_" in trial):
+                                if (
+                                    trial[-2] == "_"
+                                ):  # HACK: for leaving out the number in the dir/file name
+                                    trial = trial[:-1] + "1" + trial[-1:]
+                                im_file = f"{trial_dir}/{trial}.tif"
+                                im_files.append(im_file)
+                    else:
+                        im_files = glob.glob(f"{group_dir}/{group}_crop{crop}/*.tif")
+
+                    for im_file in im_files:
                         if os.path.isfile(im_file):
                             try:
                                 im = tifffile.imread(im_file)
-                                output_name = trial.split("_")[-1][::-1]
+                                output_name = im_file.split(".tif")[0]
+                                output_name = output_name.split("_")[-1][::-1]
                                 im_cropped = cropper.crop(
                                     im, upscale_factor=upscale_factor
                                 )
