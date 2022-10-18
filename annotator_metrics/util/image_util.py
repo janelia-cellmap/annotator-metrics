@@ -121,39 +121,6 @@ def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
         crop_start[0] : crop_end[0],
     ]
 
-    # # crop based on 4 nm coordinates
-    # # raw resolution is always equal or lower res than correct gt
-    # crop_start = row.converted_4nm_coordinates
-    # crop_end = crop_start + (row.original_crop_size // (4 // row.correct_resolution))
-
-    # scale = row.raw_resolution[0] / 4
-    # if scale > 1:
-    #     crop_start_padded = crop_start // scale
-    #     crop_end_padded = -1 * (-crop_end // scale)
-
-    #     raw = zarr_file[dataset][
-    #         crop_start_padded[2] : crop_end_padded[2],
-    #         crop_start_padded[1] : crop_end_padded[1],
-    #         crop_start_padded[0] : crop_end_padded[0],
-    #     ]
-
-    #     adjusted_start = crop_start - crop_start_padded * scale
-    #     adjusted_end = adjusted_start + (crop_end - crop_start)
-    #     cropper = Cropper(adjusted_start, adjusted_end)
-    #     raw = cropper.crop(raw, scale)
-    # elif scale <= 1:
-    #     if scale < 1:
-    #         # assume if raw_resolution < 4, then it is correct resolution
-    #         crop_start = np.ndarray.astype(crop_start / scale, np.int)
-    #         crop_end = np.ndarray.astype(crop_end / scale, np.int)
-
-    #     raw = zarr_file[dataset][
-    #         crop_start[2] : crop_end[2],
-    #         crop_start[1] : crop_end[1],
-    #         crop_start[0] : crop_end[0],
-    #     ]
-
-    # rescale to correct resolution
     rescale_factor = row.raw_resolution[0] // row.correct_resolution
     if rescale_factor > 1:
         raw = (
