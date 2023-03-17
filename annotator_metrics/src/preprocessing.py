@@ -147,6 +147,10 @@ def get_predictions_and_refinements_from_row(
 
     full_image_dict = {}
     for result_type in ["pred", "seg", "ariadne"]:
+        if result_type in ["pred", "seg"] and row.used_for_training:
+            # skip crops used for training
+            continue
+
         has_segmentation = False
         for organelle_name, organelle_label in predictions_labels_dict.items():
             if organelle_label in row.organelle_info.values():
@@ -158,15 +162,20 @@ def get_predictions_and_refinements_from_row(
                         & (prediction_paths_df["Dataset"] == cell_name)
                         & (prediction_paths_df["Class"] == organelle_name)
                     ]
+
                     if not df_row.empty:
                         result_path = df_row["Prediction Pathway"].values[0]
+                        if result_path != "-":
+                            Exception(
+                                f"Prediction does not exist: {row.group} {row.crop} {cell_name} {organelle_name}  {result_path}"
+                            )
                 else:
                     result_path = follow_symlinks(
                         f"{base_path}/{row.cell_name}/{row.cell_name}.n5/{organelle_name}_{result_type}"
                     )
-                result_path = follow_symlinks(
-                    f"{base_path}/{row.cell_name}/{row.cell_name}.n5/{organelle_name}_{result_type}"
-                )
+                # result_path = follow_symlinks(
+                #     f"{base_path}/{row.cell_name}/{row.cell_name}.n5/{organelle_name}_{result_type}"
+                # )
                 # result_path = follow_symlinks(
                 #     f"{base_path}/{organelle_name}_{result_type}"
                 # )
@@ -178,6 +187,8 @@ def get_predictions_and_refinements_from_row(
 
                 if result_path and os.path.isdir(result_path):
                     n5, dataset = result_path.rsplit(".n5/", 1)
+                    if "s0" in os.listdir(result_path):
+                        dataset += "/s0"
                     zarr_file = zarr.open(f"{n5}.n5", mode="r")
                     resolution, offset = get_resolution_and_offset_from_zarr(
                         zarr_file[dataset]
@@ -367,29 +378,30 @@ def copy_data(
                 tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
 
         # do the cropping for ground truth
-        with h5py.File(row.gt_path, "r") as f:
-            im = f["volumes"]["labels"]["gt"][:]
-            im_cropped = cropper.crop(
-                im, upscale_factor=row.gt_resolution // row.correct_resolution
-            )
-            im_cropped = im_cropped.astype(np.uint8)
-
-            # only save it if it is not copy of existing one
-            gt_is_unique = True
-            for annotation_name in os.listdir(current_output_path):
-                if annotation_name not in [
-                    "predictions.tif",
-                    "ariadne.tif",
-                    "refinements.tif",
-                ]:
-                    annotation_im = tifffile.imread(
-                        f"{current_output_path}/{annotation_name}"
-                    )
-                    if np.array_equal(annotation_im, im_cropped):
-                        gt_is_unique = False
-                        break
-
-            if gt_is_unique:
-                tifffile.imwrite(
-                    f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
+        if row.gt_path:
+            with h5py.File(row.gt_path, "r") as f:
+                im = f["volumes"]["labels"]["gt"][:]
+                im_cropped = cropper.crop(
+                    im, upscale_factor=row.gt_resolution // row.correct_resolution
                 )
+                im_cropped = im_cropped.astype(np.uint8)
+
+                # only save it if it is not copy of existing one
+                gt_is_unique = True
+                for annotation_name in os.listdir(current_output_path):
+                    if annotation_name not in [
+                        "predictions.tif",
+                        "ariadne.tif",
+                        "refinements.tif",
+                    ]:
+                        annotation_im = tifffile.imread(
+                            f"{current_output_path}/{annotation_name}"
+                        )
+                        if np.array_equal(annotation_im, im_cropped):
+                            gt_is_unique = False
+                            break
+
+                if gt_is_unique:
+                    tifffile.imwrite(
+                        f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
+                    )
