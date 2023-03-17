@@ -74,7 +74,16 @@ def plot_all_to_all(
                     )
 
     for color_range in ["standard", "combined"]:
-        _, ax = plt.subplots(1, 1, figsize=(8, 6),)
+        # with warnings.catch_warnings:
+        #     warnings.filterwarnings(
+        #         action="ignore",
+        #         message="Starting a Matplotlib GUI outside of the main thread will likely fail",
+        #     )
+        _, ax = plt.subplots(
+            1,
+            1,
+            figsize=(8, 6),
+        )
         if color_range == "standard":
             # I expect to see RuntimeWarnings in this block for all-nan slice
             with warnings.catch_warnings():
