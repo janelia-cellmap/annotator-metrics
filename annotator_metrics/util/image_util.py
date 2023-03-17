@@ -103,33 +103,64 @@ def cleanup_dir(row: Row, output_path: str) -> zarr.Group:
 
 
 def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
-    raw_split = row.raw_path.split(".n5")
-    raw_n5_path = raw_split[0] + ".n5"
-    dataset = raw_split[1]
-    if os.path.exists(raw_n5_path + "/" + dataset + "/volumes/raw"):
-        dataset += "volumes/raw"
-    if os.path.exists(row.raw_path + "/" + dataset + "/s0"):
-        dataset += "/s0"
+    try:
+        # sometimes this doesn't exist, but also sometimes raw doesn't exist, so may try both
+        with h5py.File(row.gt_path) as f:
+            raw = f["volumes"]["raw"]
+            gt = f["volumes"]["labels"]["gt"]
+            # seems like raw and gt resolutions are inaccurate for crops 8-10? so still need to use "correct resolution" in attributes
+            raw_resolution = raw.attrs["resolution"][0]
+            # gt_resolution = gt.attrs["resolution"][0]
 
-    zarr_file = zarr.open(raw_n5_path, mode="r")
+            offset_nm = (
+                np.array(gt.attrs["offset"]) + 1
+            )  # TODO: Is this right? Add one because otherwise is 1023...
 
-    crop_start = row.original_coordinates
-    crop_end = row.original_coordinates + row.original_crop_size
-    raw = zarr_file[dataset][
-        crop_start[2] : crop_end[2],
-        crop_start[1] : crop_end[1],
-        crop_start[0] : crop_end[0],
-    ]
+            # in correct resolution voxels
+            # scaling_correction = row.gt_resolution // row.correct_resolution
+            offset = offset_nm // (raw_resolution // 2)
+            # (gt_resolution * scaling_correction)
 
-    rescale_factor = row.raw_resolution[0] // row.correct_resolution
-    if rescale_factor > 1:
-        raw = (
-            raw.repeat(rescale_factor, axis=0)
-            .repeat(rescale_factor, axis=1)
-            .repeat(rescale_factor, axis=2)
-        )
-    cropper = Cropper(row.mins, row.maxs)
-    raw = cropper.crop(raw)
+            # gt_resolution = gt.attrs["offset"][0]
+            # raw_resolution = raw.attrs["resolution"][0]
+
+            # training_gt_offset_nm = np.asarray([gt_offset_nm[d]+row.mins[d]*gt_resolution for d in range(3)])
+            training_gt_mins = [int(row.mins[d] + offset[d]) for d in range(3)]
+            training_gt_maxs = [int(row.maxs[d] + offset[d]) for d in range(3)]
+
+            cropper = Cropper(training_gt_mins, training_gt_maxs)
+            # training_gt_dimensions_nm = np.asarray([row.maxs[d]*gt_resolution for d in range(3)])
+            # raw_offset = training_gt_offset_nm//raw_resolution
+
+            raw = cropper.crop(raw[:], upscale_factor=2)
+    except:
+        raw_split = row.raw_path.split(".n5")
+        raw_n5_path = raw_split[0] + ".n5"
+        dataset = raw_split[1]
+        if os.path.exists(raw_n5_path + "/" + dataset + "/volumes/raw"):
+            dataset += "volumes/raw"
+        if os.path.exists(row.raw_path + "/" + dataset + "/s0"):
+            dataset += "/s0"
+
+        zarr_file = zarr.open(raw_n5_path, mode="r")
+
+        crop_start = row.original_coordinates
+        crop_end = row.original_coordinates + row.original_crop_size
+        raw = zarr_file[dataset][
+            crop_start[2] : crop_end[2],
+            crop_start[1] : crop_end[1],
+            crop_start[0] : crop_end[0],
+        ]
+
+        rescale_factor = row.raw_resolution[0] // row.correct_resolution
+        if rescale_factor > 1:
+            raw = (
+                raw.repeat(rescale_factor, axis=0)
+                .repeat(rescale_factor, axis=1)
+                .repeat(rescale_factor, axis=2)
+            )
+        cropper = Cropper(row.mins, row.maxs)
+        raw = cropper.crop(raw)
 
     ds = zarr_root.create_dataset(
         name="raw",
