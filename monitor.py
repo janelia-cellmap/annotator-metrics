@@ -34,12 +34,19 @@ class Monitor:
 
     def get_modified_file_info(self):
         seconds_since_submission = self.current_time - self.previous_submission_time
-        annotations_added_since_last_submission = os.popen(
-            f'find "/groups/cellmap/cellmap/annotation_and_analytics/training/" -type f -name "*.tif" -newermt -"{seconds_since_submission} seconds"'
-        ).read()
-        annotations_added_since_last_submission = annotations_added_since_last_submission.split(
-            "\n"
-        )
+
+        annotations_added_since_last_submission = []
+        for annotation_dir_to_check in [
+            "/groups/cellmap/cellmap/annotation_and_analytics/training/",
+            "/groups/cellmap/cellmap/annotation_and_analytics/supplemental_variability_crops/variability_crops_personal",
+        ]:
+            current_annotations_added_since_last_submssion = os.popen(
+                f'find "{annotation_dir_to_check}" -type f -name "*.tif" -newermt -"{seconds_since_submission} seconds"'
+            ).read()
+            annotations_added_since_last_submission += current_annotations_added_since_last_submssion.split(
+                "\n"
+            )
+
         non_annotator_dirs = [
             "paintera templates",
             "conversion_scripts",
@@ -55,21 +62,40 @@ class Monitor:
                 )
                 and annotation
             ):
-                group_and_user = (
-                    annotation.split("-labels")[0].split("training/")[-1].split("/")
-                )
-                user = group_and_user[0]
-                group = group_and_user[1]
-                if re.search(
-                    f"{group}-labels/{group}_.*/{group}_*_.*\.tif", annotation
-                ):  # then is likely an actual annotation
-                    if group not in self.groups_to_info_dict:
-                        self.groups_to_info_dict[group] = {user: [annotation]}
-                    else:
-                        if user not in self.groups_to_info_dict[group]:
-                            self.groups_to_info_dict[group][user] = [annotation]
+                if "supplemental_variability_crops" not in annotation:
+                    user_and_group = (
+                        annotation.split("-labels")[0].split("training/")[-1].split("/")
+                    )
+                    user = user_and_group[0]
+                    group = user_and_group[1]
+                    if re.search(
+                        f"{group}-labels/{group}_.*/{group}_*_.*\.tif", annotation
+                    ):  # then is likely an actual annotation
+                        if group not in self.groups_to_info_dict:
+                            self.groups_to_info_dict[group] = {user: [annotation]}
                         else:
-                            self.groups_to_info_dict[group][user].append(annotation)
+                            if user not in self.groups_to_info_dict[group]:
+                                self.groups_to_info_dict[group][user] = [annotation]
+                            else:
+                                self.groups_to_info_dict[group][user].append(annotation)
+                else:
+                    user_and_group = (
+                        annotation.split("group.*_crop")[0]
+                        .split("variability_crops_personal/")[-1]
+                        .split("/")
+                    )
+                    user = user_and_group[0]
+                    group = user_and_group[1]
+                    if re.search(
+                        f"{group}/{group}_crop.*/{group}_*_.*\.tif", annotation
+                    ):  # then is likely an actual annotation
+                        if group not in self.groups_to_info_dict:
+                            self.groups_to_info_dict[group] = {user: [annotation]}
+                        else:
+                            if user not in self.groups_to_info_dict[group]:
+                                self.groups_to_info_dict[group][user] = [annotation]
+                            else:
+                                self.groups_to_info_dict[group][user].append(annotation)
 
     def submit_jobs(self):
         groups = self.groups_to_info_dict.keys()
@@ -89,7 +115,7 @@ class Monitor:
             os.system(
                 f"sed -i 's/template_group/\"{groups}\"/g' {new_config}/run-config.yaml"
             )
-            os.system(f"bsub -n 2 -P cellmap annotator-metrics {new_config} -n 20")
+            os.system(f"bsub -n 2 -P cellmap annotator-metrics {new_config} -n 48")
             monitor_new_annotations.send_email("submitted", new_config)
 
     def monitor_job_status(self):
