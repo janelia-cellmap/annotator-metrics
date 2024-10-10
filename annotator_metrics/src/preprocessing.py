@@ -9,7 +9,7 @@ from ..util.doc_util import (
     Row,
     get_prediction_paths_df,
 )
-from ..util.image_util import Cropper
+from ..util.image_util import Cropper,get_resolution_and_offset_from_zarr
 import tifffile
 import glob
 import shutil
@@ -60,11 +60,11 @@ def update_path(path: str) -> str:
 
     if (
         os.path.islink(path)
-        and "/nrs/cellmap/cosem/training/v0003.2" in path
+        and "/nrs/cellmap/cosem/training/v0003.2/" in path
         and not os.path.exists(path)
     ):
         path = path.replace(
-            "/nrs/cellmap/cosem/training/v0003.2",
+            "/nrs/cellmap/cosem/training/v0003.2/",
             "/nearline/cellmap/cosem/training/v0003.2/FROM_NRS/",
         )
         return path
@@ -117,26 +117,6 @@ def follow_symlinks(path: str) -> str:
     return path
 
 
-def get_resolution_and_offset_from_zarr(
-    zarr_array: zarr.Group,
-) -> Tuple[Union[int, float], np.ndarray]:
-    attrs = zarr_array.attrs.asdict()
-    if "transformation" in attrs:
-        resolution = attrs["transformation"]["scale"][0]
-    elif "transform" in attrs:
-        resolution = attrs["transform"]["scale"][0]
-    elif "pixelResolution" in attrs:
-        resolution = attrs["pixelResolution"]["dimensions"][0]
-    else:
-        resolution = attrs["resolution"][0]
-
-    offset = np.zeros((3,), dtype=int)
-    if "offset" in attrs:
-        offset = np.array(attrs["offset"], dtype=int)
-
-    return resolution, offset
-
-
 def get_predictions_and_refinements_from_row(
     row: Row,
     prediction_paths_df: pandas.DataFrame,
@@ -156,7 +136,6 @@ def get_predictions_and_refinements_from_row(
             if organelle_label in row.organelle_info.values():
                 result_path = None
                 if result_type == "pred":
-                    # is this necessary for predictions? currently not used
                     df_row = prediction_paths_df.loc[
                         (prediction_paths_df["Group"] == f"{row.group}_{row.crop}")
                         & (prediction_paths_df["Dataset"] == cell_name)
@@ -165,8 +144,8 @@ def get_predictions_and_refinements_from_row(
 
                     if not df_row.empty:
                         result_path = df_row["Prediction Pathway"].values[0]
-                        if result_path != "-":
-                            Exception(
+                        if result_path != "-" and not os.path.exists(result_path):
+                            raise Exception(
                                 f"Prediction does not exist: {row.group} {row.crop} {cell_name} {organelle_name}  {result_path}"
                             )
                 else:
@@ -260,10 +239,10 @@ def get_predictions_and_refinements_from_row(
 def crop_annotations(
     group: str, crop: str, cropper: Cropper, current_output_path: str
 ) -> None:
-    input_base_paths = [
-        "/groups/cellmap/cellmap/annotation_and_analytics/training",
-        "/groups/cellmap/cellmap/annotation_and_analytics/supplemental_variability_crops/variability_crops_personal",
-    ]
+    # input_base_paths = [
+    #     "/groups/cellmap/cellmap/annotation_and_analytics/training",
+    #     "/groups/cellmap/cellmap/annotation_and_analytics/supplemental_variability_crops/variability_crops_personal",
+    # ]
 
     upscale_factor = 1
     if group == "group5" and crop in ["04", "05", "06"]:
@@ -271,72 +250,68 @@ def crop_annotations(
         # so need to upsample to get it at correct
         upscale_factor = 2
 
-    for idx, input_base_path in enumerate(input_base_paths):
-        for annotator_name in os.listdir(input_base_path):
-            annotator_dir = f"{input_base_path}/{annotator_name}"
-            if os.path.isdir(annotator_dir) and annotator_name not in [
-                "conversion_scripts",
-                "textfile_templates",
-            ]:
-                group_dir = f"{annotator_dir}/{group}-labels"
-                if idx == 1:
-                    group_dir = f"{annotator_dir}/{group}"
+    # for idx, input_base_path in enumerate(input_base_paths):
+    #     for annotator_name in os.listdir(input_base_path):
+    #         annotator_dir = f"{input_base_path}/{annotator_name}"
+    #         if os.path.isdir(annotator_dir) and annotator_name not in [
+    #             "conversion_scripts",
+    #             "textfile_templates",
+    #         ]:
+    #             group_dir = f"{annotator_dir}/{group}-labels"
+    #             if idx == 1:
+    #                 group_dir = f"{annotator_dir}/{group}"
 
-                if os.path.exists(group_dir):
-                    im_files = []
-                    if idx == 0:
-                        for trial in os.listdir(group_dir):
-                            trial_dir = f"{group_dir}/{trial}"
-                            if os.path.isdir(trial_dir) and (f"_{crop}_" in trial):
-                                if (
-                                    trial[-2] == "_"
-                                ):  # HACK: for leaving out the number in the dir/file name
-                                    trial = trial[:-1] + "1" + trial[-1:]
-                                im_file = f"{trial_dir}/{trial}.tif"
-                                im_files.append(im_file)
-                    else:
-                        im_files = glob.glob(f"{group_dir}/{group}_crop{crop}/*.tif")
+    #             if os.path.exists(group_dir):
+    #                 im_files = []
+    #                 if idx == 0:
+    #                     for trial in os.listdir(group_dir):
+    #                         trial_dir = f"{group_dir}/{trial}"
+    #                         if os.path.isdir(trial_dir) and (f"_{crop}_" in trial):
+    #                             if (
+    #                                 trial[-2] == "_"
+    #                             ):  # HACK: for leaving out the number in the dir/file name
+    #                                 trial = trial[:-1] + "1" + trial[-1:]
+    #                             im_file = f"{trial_dir}/{trial}.tif"
+    #                             im_files.append(im_file)
+    #                 else:
+    #                     im_files = glob.glob(f"{group_dir}/{group}_crop{crop}/*.tif")
 
-                    for im_file in im_files:
-                        if os.path.isfile(im_file):
-                            try:
-                                im = tifffile.imread(im_file)
-                                output_name = im_file.split(".tif")[0]
-                                output_name = output_name.split("_")[-1][::-1]
-                                im_cropped = cropper.crop(
-                                    im, upscale_factor=upscale_factor
-                                )
-                                tifffile.imwrite(
-                                    f"{current_output_path}/{output_name}.tif",
-                                    im_cropped,
-                                )
-                            except:
-                                pass
+    #                 for im_file in im_files:
+    #                     if os.path.isfile(im_file):
+    #                         try:
+    #                             im = tifffile.imread(im_file)
+    #                             output_name = im_file.split(".tif")[0]
+    #                             output_name = output_name.split("_")[-1][::-1]
+    #                             im_cropped = cropper.crop(
+    #                                 im, upscale_factor=upscale_factor
+    #                             )
+    #                             tifffile.imwrite(
+    #                                 f"{current_output_path}/{output_name}.tif",
+    #                                 im_cropped,
+    #                             )
+    #                         except:
+    #                             pass
 
     # cellmap annotators are in a different directory
-    cellmap_annotator_dir = (
-        f"/groups/cellmap/cellmap/annotations/training/{group}-labels/{group}_{crop}/"
-    )
-    if os.path.isdir(cellmap_annotator_dir):
-        annotator_tifs = glob.glob(f"{cellmap_annotator_dir}/*.tif")
-        if annotator_tifs:
-            for annotator_tif in annotator_tifs:
-                # then don't need to check subdirectories
-                output_name = annotator_tif.split(".tif")[0][-2::][::-1]
-                im = tifffile.imread(annotator_tif)
-                im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
-                tifffile.imwrite(f"{current_output_path}/{output_name}.tif", im_cropped)
-        else:
-            for trial in os.listdir(cellmap_annotator_dir):
-                output_name = trial.split("_")[-1][::-1]
-                if output_name[0] in ["a", "b", "f"]:
-                    im_file = f"{cellmap_annotator_dir}/{trial}/{trial}.tif"
-                    if os.path.isfile(im_file):
-                        im = tifffile.imread(im_file)
-                        im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
-                        tifffile.imwrite(
-                            f"{current_output_path}/{output_name}.tif", im_cropped
-                        )
+    annotator_tifs = glob.glob(f"/groups/cellmap/cellmap/annotations/variability/{group}_{crop}_*.tif")
+    #if annotator_tifs:
+    for annotator_tif in annotator_tifs:
+        # then don't need to check subdirectories
+        output_name = annotator_tif.split(".tif")[0][-3:]#[::-1]
+        im = tifffile.imread(annotator_tif)
+        im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
+        tifffile.imwrite(f"{current_output_path}/{output_name}.tif", im_cropped)
+    # else:
+    #     for trial in os.listdir(cellmap_annotator_dir):
+    #         output_name = trial.split("_")[-1][::-1]
+    #         if output_name[0] in ["a", "b", "f"]:
+    #             im_file = f"{cellmap_annotator_dir}/{trial}/{trial}.tif"
+    #             if os.path.isfile(im_file):
+    #                 im = tifffile.imread(im_file)
+    #                 im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
+    #                 tifffile.imwrite(
+    #                     f"{current_output_path}/{output_name}.tif", im_cropped
+    #                 )
 
 
 def copy_data(
@@ -403,5 +378,5 @@ def copy_data(
 
                 if gt_is_unique:
                     tifffile.imwrite(
-                        f"{current_output_path}/gt.tif", im_cropped.astype(np.uint8)
+                        f"{current_output_path}/00a.tif", im_cropped.astype(np.uint8)
                     )

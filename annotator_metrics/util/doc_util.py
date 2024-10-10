@@ -78,6 +78,7 @@ class Row:
         )
         self.original_coordinates = self.__get_column("original coordinates")
         self.used_for_training = self.__get_column("used for training")
+        self.raw_data_coordinates_mins, self.raw_data_coordinates_maxs = self.__get_column("raw data coordinates")
         self.mins, self.maxs = self.__get_column("coordinates within crop")
 
     def __get_organelle_info(self):

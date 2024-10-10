@@ -93,15 +93,12 @@ def compare_two_images(
                 score = float("NaN")
             if score == np.nan_to_num(np.inf):
                 score = float("NaN")  # Necessary for plotting
-            scores.append(
-                [metric, score],
-            )
+            scores.append([metric, score],)
     return scores
 
 
 def calculate_metric_scores(
-    r: pandas.Series,
-    metrics_to_calculate: Union[str, list] = "all",
+    r: pandas.Series, metrics_to_calculate: Union[str, list] = "all",
 ) -> List[Result]:
     """Calculates the metric score(s) between two images and returns a list of the results.
 
@@ -113,11 +110,7 @@ def calculate_metric_scores(
         List[Result]: List of score results.
     """
     scores = compare_two_images(
-        r.gt_path,
-        r.test_path,
-        r.organelle_label,
-        r.resolution,
-        metrics_to_calculate,
+        r.gt_path, r.test_path, r.organelle_label, r.resolution, metrics_to_calculate,
     )
 
     output_formatted = []
@@ -141,9 +134,7 @@ def calculate_metric_scores(
 
 
 def create_dataframe(
-    group: Union[list, str],
-    crop: Union[list, str],
-    input_base_path: str,
+    group: Union[list, str], crop: Union[list, str], input_base_path: str,
 ) -> pandas.DataFrame:
     """Generates dataframe from mask information of images to compare.
 
@@ -411,7 +402,7 @@ def main():
                     group=group,
                     output_path=f"{output_path}/data/",
                     crop=crop,
-                    include_nonannotator_results=True,
+                    include_nonannotator_results=False,
                 )
 
             # Start dask
