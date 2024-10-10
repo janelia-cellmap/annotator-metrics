@@ -1,5 +1,5 @@
 from contextlib import ExitStack
-from typing import Union
+from typing import Tuple, Union
 import h5py
 from numcodecs.gzip import GZip
 from annotator_metrics.util.doc_util import MaskInformation, Row
@@ -35,12 +35,35 @@ class Cropper:
         ]
         return im
 
+def get_resolution_and_offset_from_zarr(
+    zarr_array: zarr.Group,
+) -> Tuple[Union[int, float], np.ndarray]:
+    attrs = zarr_array.attrs.asdict()
+    if "transformation" in attrs:
+        resolution = attrs["transformation"]["scale"][0]
+    elif "transform" in attrs:
+        resolution = attrs["transform"]["scale"][0]
+    elif "pixelResolution" in attrs:
+        resolution = attrs["pixelResolution"]["dimensions"][0]
+    else:
+        resolution = attrs["resolution"][0]
+
+    offset = np.zeros((3,), dtype=int)
+    if "offset" in attrs:
+        offset = np.array(attrs["offset"], dtype=int)
+
+    return resolution, offset
 
 def create_crop_variance_image(
     input_path: str, row: Row, zarr_root: zarr.Group
 ) -> None:
     image_names = os.listdir(f"{input_path}/{row.group}/{row.crop}")
     images = []
+
+
+    rescale_factor = row.raw_resolution[0] // row.correct_resolution
+    offset_nm = row.correct_resolution*(rescale_factor*row.original_coordinates + row.mins)
+    offset_nm = offset_nm.tolist()
 
     # segmentations
     for image_name in image_names:
@@ -62,6 +85,7 @@ def create_crop_variance_image(
             "dimensions": 3 * [row.correct_resolution],
             "unit": "nm",
         }
+        attributes["offset"] = offset_nm
 
     # variance
     for organelle_name, organelle_label in row.organelle_info.items():
@@ -91,6 +115,7 @@ def create_crop_variance_image(
             "dimensions": 3 * [row.correct_resolution],
             "unit": "nm",
         }
+        attributes["offset"] = offset_nm
 
 
 def cleanup_dir(row: Row, output_path: str) -> zarr.Group:
@@ -101,6 +126,15 @@ def cleanup_dir(row: Row, output_path: str) -> zarr.Group:
     zarr_root = zarr.group(store=store)
     return zarr_root
 
+def get_raw_path_and_dataset_from_row(row: Row) -> Tuple[str, str]:
+    raw_split = row.raw_path.split(".n5")
+    raw_n5_path = raw_split[0] + ".n5"
+    dataset = raw_split[1]
+    if os.path.exists(raw_n5_path + "/" + dataset + "/volumes/raw"):
+        dataset += "volumes/raw"
+    if os.path.exists(row.raw_path + "/" + dataset + "/s0"):
+        dataset += "/s0"
+    return raw_n5_path, dataset
 
 def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
     try:
@@ -134,13 +168,7 @@ def get_raw_image(row: Row, zarr_root: zarr.Group) -> None:
 
             raw = cropper.crop(raw[:], upscale_factor=2)
     except:
-        raw_split = row.raw_path.split(".n5")
-        raw_n5_path = raw_split[0] + ".n5"
-        dataset = raw_split[1]
-        if os.path.exists(raw_n5_path + "/" + dataset + "/volumes/raw"):
-            dataset += "volumes/raw"
-        if os.path.exists(row.raw_path + "/" + dataset + "/s0"):
-            dataset += "/s0"
+        raw_n5_path, dataset = get_raw_path_and_dataset_from_row(row)
 
         zarr_file = zarr.open(raw_n5_path, mode="r")
 
@@ -281,38 +309,61 @@ def get_neuroglancer_view(
         dirs += variance_images
         viewer = neuroglancer.Viewer()
         with viewer.txn() as s:
+
+            # raw
+            # shaderControls = {
+            #     "normalized": {
+            #         "range": [np.amin(zarr_root["raw"]), np.amax(zarr_root["raw"])]
+            #     }
+            # }
+            #, shaderControls=shaderControls,)
+            raw_resolution = row.raw_resolution[0]
+            raw_n5_path, dataset = get_raw_path_and_dataset_from_row(row)
+            source = raw_n5_path + "/" + dataset
+            source = source.replace("/nrs/cellmap/","n5://https://cellmap-vm1.int.janelia.org/nrs/", )
+            s.layers["raw"] = neuroglancer.ImageLayer(source=source)
+
+            output_dimensions = neuroglancer.CoordinateSpace(
+                names=["x", "y", "z"], units="nm", scales=3*[raw_resolution]
+            )
+
             zarr_root = zarr.open(
                 f"{n5s_path}/{row.group}/{row.crop}.n5",
                 mode="r",
             )
-
-            # raw
-            shaderControls = {
-                "normalized": {
-                    "range": [np.amin(zarr_root["raw"]), np.amax(zarr_root["raw"])]
-                }
-            }
-            s.layers["raw"] = neuroglancer.ImageLayer(
-                source=f"{path}/raw", shaderControls=shaderControls
-            )
-
             for d in dirs:
+                _, offset_nm = get_resolution_and_offset_from_zarr(zarr_root[d])
+                offset_voxels = offset_nm.astype(np.float) / raw_resolution
+
                 if "variance" not in d:
                     s.layers[d] = neuroglancer.SegmentationLayer(
-                        source=f"{path}/{d}",
+                        source=[
+                            neuroglancer.LayerDataSource(f"{path}/{d}",
+                                                         transform=neuroglancer.CoordinateSpaceTransform(
+                                                                output_dimensions=output_dimensions,
+                                                                matrix=[[1, 0, 0, offset_voxels[0]], [0, 1, 0, offset_voxels[1]], [0, 0, 1, offset_voxels[2]]],
+                                                            ),
+                                                        )
+                        ],
                     )
                 else:
                     shader = "#uicontrol invlerp normalized \nvoid main() {\n\temitRGB(vec3(normalized(),0, 0));\n}"
                     shaderControls = {
                         "normalized": {"range": [np.amin(0), np.amax(zarr_root[d])]}
                     }
-                    s.layers[d] = neuroglancer.ImageLayer(
-                        source=f"{path}/{d}",
+                    s.layers[d] = neuroglancer.ImageLayer(source=[neuroglancer.LayerDataSource(f"{path}/{d}",
+                                                                                               transform=neuroglancer.CoordinateSpaceTransform(
+                                                                                                   output_dimensions=output_dimensions,
+                                                                                                   matrix=[[1, 0, 0, offset_voxels[0]], [0, 1, 0, offset_voxels[1]], [0, 0, 1, offset_voxels[2]]],
+                                                                                                   ),
+                                                                                                )
+                        ],
                         shader=shader,
                         shaderControls=shaderControls,
                     )
                 s.layers[d].visible = False
-
+            print(offset_nm, offset_voxels, row.correct_resolution, raw_resolution)
+            s.position = (offset_nm + (row.maxs-row.mins) * row.correct_resolution  / 2) / raw_resolution
         url = neuroglancer.to_url(viewer.state)
         display_url(
             url,
