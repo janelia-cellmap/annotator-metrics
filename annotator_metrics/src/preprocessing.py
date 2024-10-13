@@ -9,7 +9,7 @@ from ..util.doc_util import (
     Row,
     get_prediction_paths_df,
 )
-from ..util.image_util import Cropper,get_resolution_and_offset_from_zarr
+from ..util.image_util import Cropper, get_resolution_and_offset_from_zarr
 import tifffile
 import glob
 import shutil
@@ -215,9 +215,9 @@ def get_predictions_and_refinements_from_row(
                             crop_start[0] : crop_end[0],
                         ]
 
-                    combined_image[
-                        im >= (127 if result_type == "pred" else 1)
-                    ] = organelle_label
+                    combined_image[im >= (127 if result_type == "pred" else 1)] = (
+                        organelle_label
+                    )
 
         if has_segmentation:
             combined_image = (
@@ -250,54 +250,14 @@ def crop_annotations(
         # so need to upsample to get it at correct
         upscale_factor = 2
 
-    # for idx, input_base_path in enumerate(input_base_paths):
-    #     for annotator_name in os.listdir(input_base_path):
-    #         annotator_dir = f"{input_base_path}/{annotator_name}"
-    #         if os.path.isdir(annotator_dir) and annotator_name not in [
-    #             "conversion_scripts",
-    #             "textfile_templates",
-    #         ]:
-    #             group_dir = f"{annotator_dir}/{group}-labels"
-    #             if idx == 1:
-    #                 group_dir = f"{annotator_dir}/{group}"
-
-    #             if os.path.exists(group_dir):
-    #                 im_files = []
-    #                 if idx == 0:
-    #                     for trial in os.listdir(group_dir):
-    #                         trial_dir = f"{group_dir}/{trial}"
-    #                         if os.path.isdir(trial_dir) and (f"_{crop}_" in trial):
-    #                             if (
-    #                                 trial[-2] == "_"
-    #                             ):  # HACK: for leaving out the number in the dir/file name
-    #                                 trial = trial[:-1] + "1" + trial[-1:]
-    #                             im_file = f"{trial_dir}/{trial}.tif"
-    #                             im_files.append(im_file)
-    #                 else:
-    #                     im_files = glob.glob(f"{group_dir}/{group}_crop{crop}/*.tif")
-
-    #                 for im_file in im_files:
-    #                     if os.path.isfile(im_file):
-    #                         try:
-    #                             im = tifffile.imread(im_file)
-    #                             output_name = im_file.split(".tif")[0]
-    #                             output_name = output_name.split("_")[-1][::-1]
-    #                             im_cropped = cropper.crop(
-    #                                 im, upscale_factor=upscale_factor
-    #                             )
-    #                             tifffile.imwrite(
-    #                                 f"{current_output_path}/{output_name}.tif",
-    #                                 im_cropped,
-    #                             )
-    #                         except:
-    #                             pass
-
     # cellmap annotators are in a different directory
-    annotator_tifs = glob.glob(f"/groups/cellmap/cellmap/annotations/variability/{group}_{crop}_*.tif")
-    #if annotator_tifs:
+    annotator_tifs = glob.glob(
+        f"/groups/cellmap/cellmap/annotations/variability/{group}_{crop}_*.tif"
+    )
+    # if annotator_tifs:
     for annotator_tif in annotator_tifs:
         # then don't need to check subdirectories
-        output_name = annotator_tif.split(".tif")[0][-3:]#[::-1]
+        output_name = annotator_tif.split(".tif")[0][-3:]  # [::-1]
         im = tifffile.imread(annotator_tif)
         im_cropped = cropper.crop(im, upscale_factor=upscale_factor)
         tifffile.imwrite(f"{current_output_path}/{output_name}.tif", im_cropped)
@@ -329,7 +289,6 @@ def copy_data(
         include_nonannotator_results (bool, optional): Whether or not to include predictions, refinements and ariadne. Defaults to False.
     """
     mask_information = MaskInformation(group, crop)
-    prediction_paths_df = get_prediction_paths_df()
 
     for row in mask_information.rows:
         group = row.group
@@ -344,6 +303,7 @@ def copy_data(
         crop_annotations(group, crop, cropper, current_output_path)
 
         if include_nonannotator_results:
+            prediction_paths_df = get_prediction_paths_df()
             # do predictions and refinements
             full_im_dict = get_predictions_and_refinements_from_row(
                 row, prediction_paths_df
@@ -352,31 +312,5 @@ def copy_data(
                 im_cropped = cropper.crop(im)
                 tifffile.imwrite(f"{current_output_path}/{name}.tif", im_cropped)
 
-        # do the cropping for ground truth
-        if row.gt_path:
-            with h5py.File(row.gt_path, "r") as f:
-                im = f["volumes"]["labels"]["gt"][:]
-                im_cropped = cropper.crop(
-                    im, upscale_factor=row.gt_resolution // row.correct_resolution
-                )
-                im_cropped = im_cropped.astype(np.uint8)
-
-                # only save it if it is not copy of existing one
-                gt_is_unique = True
-                for annotation_name in os.listdir(current_output_path):
-                    if annotation_name not in [
-                        "predictions.tif",
-                        "ariadne.tif",
-                        "refinements.tif",
-                    ]:
-                        annotation_im = tifffile.imread(
-                            f"{current_output_path}/{annotation_name}"
-                        )
-                        if np.array_equal(annotation_im, im_cropped):
-                            gt_is_unique = False
-                            break
-
-                if gt_is_unique:
-                    tifffile.imwrite(
-                        f"{current_output_path}/00a.tif", im_cropped.astype(np.uint8)
-                    )
+        if not os.listdir(current_output_path):
+            shutil.rmtree(current_output_path)
