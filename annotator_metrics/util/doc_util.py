@@ -37,9 +37,10 @@ class Row:
                     ),
                 )
             except:
-                with h5py.File(self.gt_path, "r") as f:
-                    im = f["volumes"]["labels"]["gt"][:]
-                    output = (np.array([0, 0, 0]), np.array(np.shape(im)))
+                if self.gt_path:
+                    with h5py.File(self.gt_path, "r") as f:
+                        im = f["volumes"]["labels"]["gt"][:]
+                        output = (np.array([0, 0, 0]), np.array(np.shape(im)))
             return output
         else:
             # Way to treat it when  contains eg unnamed 0_level_0
@@ -78,7 +79,9 @@ class Row:
         )
         self.original_coordinates = self.__get_column("original coordinates")
         self.used_for_training = self.__get_column("used for training")
-        self.raw_data_coordinates_mins, self.raw_data_coordinates_maxs = self.__get_column("raw data coordinates")
+        self.raw_data_coordinates_mins, self.raw_data_coordinates_maxs = (
+            self.__get_column("raw data coordinates")
+        )
         self.mins, self.maxs = self.__get_column("coordinates within crop")
 
     def __get_organelle_info(self):
