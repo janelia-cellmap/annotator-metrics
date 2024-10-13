@@ -93,12 +93,15 @@ def compare_two_images(
                 score = float("NaN")
             if score == np.nan_to_num(np.inf):
                 score = float("NaN")  # Necessary for plotting
-            scores.append([metric, score],)
+            scores.append(
+                [metric, score],
+            )
     return scores
 
 
 def calculate_metric_scores(
-    r: pandas.Series, metrics_to_calculate: Union[str, list] = "all",
+    r: pandas.Series,
+    metrics_to_calculate: Union[str, list] = "all",
 ) -> List[Result]:
     """Calculates the metric score(s) between two images and returns a list of the results.
 
@@ -110,7 +113,11 @@ def calculate_metric_scores(
         List[Result]: List of score results.
     """
     scores = compare_two_images(
-        r.gt_path, r.test_path, r.organelle_label, r.resolution, metrics_to_calculate,
+        r.gt_path,
+        r.test_path,
+        r.organelle_label,
+        r.resolution,
+        metrics_to_calculate,
     )
 
     output_formatted = []
@@ -134,7 +141,9 @@ def calculate_metric_scores(
 
 
 def create_dataframe(
-    group: Union[list, str], crop: Union[list, str], input_base_path: str,
+    group: Union[list, str],
+    crop: Union[list, str],
+    input_base_path: str,
 ) -> pandas.DataFrame:
     """Generates dataframe from mask information of images to compare.
 
@@ -155,6 +164,7 @@ def create_dataframe(
         original_image_paths = [
             f"{input_base_path}/{row.group}/{row.crop}/{f}" for f in all_segmentations
         ]
+        original_image_id_sets = [set(np.unique(tifffile.imread(original_image_path))) for original_image_path in original_image_paths]
         for organelle_name, organelle_label in row.organelle_info.items():
             image_paths = []
             segmentation_types = []
@@ -195,8 +205,13 @@ def create_dataframe(
                         use_image = False
 
                 if use_image:
-                    image_paths.append(p)
-                    segmentation_types.append(original_segmentation_types[idx])
+                    if type(organelle_label) is not list:
+                        organelle_label = [organelle_label]
+                    organelle_label_set = set(organelle_label)
+                    
+                    if set(original_image_id_sets[idx]).intersection(organelle_label_set):
+                        image_paths.append(p)
+                        segmentation_types.append(original_segmentation_types[idx])
 
             if len(image_paths) > 1:
                 for gt_idx, gt_path in enumerate(image_paths):
@@ -303,9 +318,9 @@ def calculate_all_to_all(
             dask.config.set({"distributed.comm.timeouts.connect": 100})
             stack.enter_context(Client(n_workers=num_workers, threads_per_worker=1))
             client = Client.current()
-            local_ip = socket.gethostbyname(socket.gethostname())
+            local_ip = socket.gethostname()
             url = client.dashboard_link.replace("127.0.0.1", local_ip)
-            display_url(url, "Click here to montior all-to-all calculation progress")
+            display_url(url, "Click here to monitor all-to-all calculation progress")
 
         lazy_results = []
         for _, row in df.iterrows():
@@ -381,9 +396,11 @@ def main():
     group = [group.split(",") if "," in group else group][0]
     crop = [crop.split(",") if "," in crop else crop][0]
     metrics_to_calculate = [
-        metrics_to_calculate.split(",")
-        if "," in metrics_to_calculate
-        else metrics_to_calculate
+        (
+            metrics_to_calculate.split(",")
+            if "," in metrics_to_calculate
+            else metrics_to_calculate
+        )
     ][0]
 
     # Change execution directory
@@ -423,7 +440,7 @@ def main():
                 # Restart dask to clean up cluster before variance image creation
                 with dask_util.start_dask(num_workers, "variance", logger):
                     with io_util.Timing_Messager(
-                        f"Creating variance images for {current_group}", logger
+                        f"Creating variance images for {current_group}, crop {crop}", logger
                     ):
                         create_variance_images(
                             input_path=f"{output_path}/data/",
